@@ -23,7 +23,23 @@ paket_wajib = {
 
 paket_instal = list(paket_wajib.values())
 print("Memastikan versi paket yang dibutuhkan terpasang.")
-subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade"] + paket_instal)
+
+# ``sys.executable -m pip`` works both in standard Python environments and in
+# Google Colab.  A previous revision mistakenly tried to call ``-m !pip`` which
+# causes ``ModuleNotFoundError`` because ``!`` is shell syntax that should not be
+# used when invoking modules via ``python -m``.  Building the command list
+# explicitly avoids that issue and keeps the invocation compatible across
+# platforms.
+pip_command = [
+    sys.executable,
+    "-m",
+    "pip",
+    "install",
+    "--quiet",
+    "--upgrade",
+    *paket_instal,
+]
+subprocess.check_call(pip_command)
 
 import torch
 
