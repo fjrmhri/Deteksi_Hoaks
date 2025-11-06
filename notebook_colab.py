@@ -1,13 +1,15 @@
-"""Notebook pipeline for Colab in Indonesian."""
-
+# ==========================
+# 1) Persiapan Lingkungan
+# ==========================
+print("# ==========================")
 print("# 1) Persiapan Lingkungan")
-import os
-import sys
+print("# ==========================")
+
 import subprocess
-import importlib
+import sys
 
 paket_wajib = {
-    "torch": "torch==2.1.2",
+    "torch": "torch==2.1.2",  # mendukung CUDA 11.8 di Colab T4
     "transformers": "transformers==4.38.2",
     "datasets": "datasets==2.17.1",
     "accelerate": "accelerate==0.27.2",
@@ -19,31 +21,43 @@ paket_wajib = {
     "imbalanced-learn": "imbalanced-learn==0.11.0"
 }
 
-paket_belum = []
-for modul, versi in paket_wajib.items():
-    try:
-        importlib.import_module(modul.replace("-", "_"))
-    except ImportError:
-        paket_belum.append(versi)
+paket_instal = list(paket_wajib.values())
+print("Memastikan versi paket yang dibutuhkan terpasang.")
+subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade"] + paket_instal)
 
-if paket_belum:
-    print("Menginstal paket: " + ", ".join(paket_belum))
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet"] + paket_belum)
+import torch
+
+if torch.cuda.is_available():
+    perangkat = torch.device("cuda")
+    nama_gpu = torch.cuda.get_device_name(perangkat)
+    mem_total = torch.cuda.get_device_properties(perangkat).total_memory / (1024 ** 3)
+    print(f"GPU aktif: {nama_gpu} ({mem_total:.2f} GB)")
+    bebas, total = torch.cuda.mem_get_info()
+    print(f"Perkiraan memori bebas: {bebas / (1024 ** 3):.2f} GB dari {total / (1024 ** 3):.2f} GB")
+    print("Gunakan !nvidia-smi di Colab untuk detail tambahan.")
 else:
-    print("Seluruh paket utama sudah tersedia.")
+    perangkat = torch.device("cpu")
+    print("GPU tidak terdeteksi, menggunakan CPU.")
 
-import random
-import math
-from pathlib import Path
+# ==========================
+# 2) Konfigurasi
+# ==========================
+print("\n# ==========================")
+print("# 2) Konfigurasi")
+print("# ==========================")
+
 import json
+import math
+import os
+import random
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
-from torch import nn
-
-from sklearn.model_selection import train_test_split
+from datasets import Dataset
+from imblearn.over_sampling import RandomOverSampler
+from matplotlib import pyplot as plt
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -53,40 +67,19 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score
 )
+from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
-
+from torch import nn
+from torch.utils.data import DataLoader
 from transformers import (
-    AutoTokenizer,
     AutoModelForSequenceClassification,
-    get_linear_schedule_with_warmup,
-    DataCollatorWithPadding
+    AutoTokenizer,
+    DataCollatorWithPadding,
+    get_linear_schedule_with_warmup
 )
-from datasets import Dataset
 from tqdm.auto import tqdm
-import matplotlib.pyplot as plt
 
-try:
-    from imblearn.over_sampling import RandomOverSampler
-except Exception:
-    RandomOverSampler = None
-
-print("Memeriksa GPU...")
-if torch.cuda.is_available():
-    perangkat = torch.device("cuda")
-    nama_gpu = torch.cuda.get_device_name(perangkat)
-    mem_total = torch.cuda.get_device_properties(perangkat).total_memory / (1024 ** 3)
-    print(f"GPU aktif: {nama_gpu} ({mem_total:.2f} GB)")
-    mem_bebas, mem_total_b = torch.cuda.mem_get_info()
-    print(
-        "Perkiraan memori bebas: "
-        f"{mem_bebas / (1024 ** 3):.2f} GB dari {mem_total_b / (1024 ** 3):.2f} GB"
-    )
-    print("Gunakan perintah !nvidia-smi di Colab untuk memantau pemakaian secara langsung.")
-else:
-    perangkat = torch.device("cpu")
-    print("GPU tidak ditemukan, menggunakan CPU.")
-
-print("\n# 2) Konfigurasi")
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 cfg = {
     "jalur_data": "dataset/berita_hoaks.csv",
@@ -131,22 +124,27 @@ print("Ringkasan konfigurasi:")
 for k, v in cfg.items():
     print(f"  {k}: {v}")
 
-print("\n# 3) Muat & Validasi Data")
+# ==========================
+# 3) Muat dan Validasi Data
+# ==========================
+print("\n# ==========================")
+print("# 3) Muat dan Validasi Data")
+print("# ==========================")
 
 jalur_data = Path(cfg["jalur_data"])
 jalur_data.parent.mkdir(parents=True, exist_ok=True)
 
 if not jalur_data.exists():
-    print(f"Berkas {jalur_data} tidak ditemukan. Membuat contoh sintetis di {jalur_data}.")
+    print(f"Berkas {jalur_data} tidak ditemukan. Membuat contoh sintetis.")
     contoh_data = pd.DataFrame(
         {
             "teks": [
                 "Vaksin COVID-19 mengandung chip pelacak yang akan mengendalikan pikiran manusia.",
                 "Kementerian Kesehatan memastikan vaksin COVID-19 aman dan tidak mengandung chip.",
-                "Video yang beredar tentang bank akan tutup permanen adalah rekayasa lama.",
-                "Bank Indonesia menyatakan layanan perbankan tetap berjalan normal.",
-                "Hoaks lama tentang telur palsu plastik kembali disebarkan melalui WhatsApp.",
-                "Produsen makanan menjelaskan bahwa telur yang beredar adalah asli dan aman dikonsumsi."
+                "Video tentang bank tutup permanen adalah rekayasa lama yang kembali disebarkan.",
+                "Bank Indonesia menyatakan layanan perbankan berjalan normal.",
+                "Hoaks telur plastik kembali muncul di media sosial.",
+                "Produsen makanan menegaskan telur yang beredar asli dan aman dikonsumsi."
             ],
             "label": [1, 0, 1, 0, 1, 0]
         }
@@ -170,11 +168,11 @@ if set(data[kolom_label].unique()) - {0, 1}:
 
 print(f"Jumlah baris setelah pembersihan: {len(data)}")
 
-print("Distribusi label:")
 distribusi_label = data[kolom_label].value_counts().sort_index()
+print("Distribusi label:")
 for label_nilai, jumlah in distribusi_label.items():
-    persentase = jumlah / len(data) * 100
     nama = "bukan hoaks" if label_nilai == 0 else "hoaks"
+    persentase = jumlah / len(data) * 100
     print(f"  {label_nilai} ({nama}): {jumlah} ({persentase:.2f}%)")
 
 print("Membagi data menjadi latih/validasi/uji secara stratified...")
@@ -196,62 +194,75 @@ print(f"Data latih: {len(train_df)} baris")
 print(f"Data validasi: {len(valid_df)} baris")
 print(f"Data uji: {len(test_df)} baris")
 
-print("\n# 4) Pra-pemrosesan & Tokenisasi")
+# ==========================
+# 4) Pra-pemrosesan dan Tokenisasi
+# ==========================
+print("\n# ==========================")
+print("# 4) Pra-pemrosesan dan Tokenisasi")
+print("# ==========================")
 
-def bersihkan_teks(teks):
+
+def bersihkan_teks(teks: str) -> str:
     if not isinstance(teks, str):
         return ""
     teks = teks.lower().strip()
     return " ".join(teks.split())
 
-train_df = train_df.assign(teks=train_df["teks"].apply(bersihkan_teks))
-valid_df = valid_df.assign(teks=valid_df["teks"].apply(bersihkan_teks))
-test_df = test_df.assign(teks=test_df["teks"].apply(bersihkan_teks))
+
+train_df = train_df.assign(teks=train_df[kolom_teks].apply(bersihkan_teks))
+valid_df = valid_df.assign(teks=valid_df[kolom_teks].apply(bersihkan_teks))
+test_df = test_df.assign(teks=test_df[kolom_teks].apply(bersihkan_teks))
 
 if cfg["strategi_imbalance"] == "oversampling":
-    if RandomOverSampler is None:
-        print("Paket imbalanced-learn tidak tersedia. Mengganti strategi menjadi 'bobot'.")
-        cfg["strategi_imbalance"] = "bobot"
-    else:
-        print("Melakukan oversampling pada data latih.")
-        ros = RandomOverSampler(random_state=cfg["nilai_acak"])
-        teks_res, label_res = ros.fit_resample(train_df[[kolom_teks]], train_df[kolom_label])
-        train_df = pd.DataFrame({
-            kolom_teks: teks_res[kolom_teks],
-            kolom_label: label_res
-        })
-        print(f"Jumlah baris latih setelah oversampling: {len(train_df)}")
+    print("Melakukan oversampling pada data latih.")
+    ros = RandomOverSampler(random_state=cfg["nilai_acak"])
+    teks_res, label_res = ros.fit_resample(train_df[[kolom_teks]], train_df[kolom_label])
+    train_df = pd.DataFrame({kolom_teks: teks_res[kolom_teks], kolom_label: label_res})
+    print(f"Jumlah baris latih setelah oversampling: {len(train_df)}")
 
-print("Memuat tokenizer dan model dasar...")
+print("Memuat tokenizer Indonesia...")
 tokenizer = AutoTokenizer.from_pretrained(cfg["nama_model"])
 
-print("Menyiapkan dataset Hugging Face.")
 
-def buat_dataset(dataframe):
+def buat_dataset(dataframe: pd.DataFrame) -> Dataset:
     dataset = Dataset.from_pandas(dataframe.reset_index(drop=True))
     dataset = dataset.map(
         lambda contoh: tokenizer(
-            contoh["teks"],
+            contoh[kolom_teks],
             truncation=True,
             max_length=cfg["panjang_maks"],
             padding=False
         ),
         batched=True,
-        remove_columns=[col for col in dataframe.columns if col != kolom_label],
+        remove_columns=[kolom_teks],
         desc="Tokenisasi"
     )
+    if kolom_label in dataset.column_names:
+        dataset = dataset.rename_column(kolom_label, "labels")
+    kolom_sisa = [kol for kol in dataset.column_names if kol.startswith("__index_")]
+    if kolom_sisa:
+        dataset = dataset.remove_columns(kolom_sisa)
     dataset.set_format(type="torch")
     return dataset
 
-dataset_latih = buat_dataset(train_df)
-dataset_valid = buat_dataset(valid_df)
-dataset_uji = buat_dataset(test_df)
+
+dataset_latih = buat_dataset(train_df[[kolom_teks, kolom_label]])
+dataset_valid = buat_dataset(valid_df[[kolom_teks, kolom_label]])
+dataset_uji = buat_dataset(test_df[[kolom_teks, kolom_label]])
+
+print("Dataset Hugging Face siap digunakan.")
+
+# ==========================
+# 5) Pembuatan DataLoader
+# ==========================
+print("\n# ==========================")
+print("# 5) Pembuatan DataLoader")
+print("# ==========================")
 
 kolator = DataCollatorWithPadding(tokenizer=tokenizer)
 
-print("\n# 5) Pembuatan DataLoader")
 
-def buat_dataloader(dataset, ukuran_batch, acak):
+def buat_dataloader(dataset: Dataset, ukuran_batch: int, acak: bool) -> DataLoader:
     return DataLoader(
         dataset,
         batch_size=ukuran_batch,
@@ -262,6 +273,7 @@ def buat_dataloader(dataset, ukuran_batch, acak):
         persistent_workers=cfg["persistent_workers"] if cfg["num_workers"] > 0 else False
     )
 
+
 loader_latih = buat_dataloader(dataset_latih, cfg["ukuran_batch_latih"], True)
 loader_valid = buat_dataloader(dataset_valid, cfg["ukuran_batch_eval"], False)
 loader_uji = buat_dataloader(dataset_uji, cfg["ukuran_batch_eval"], False)
@@ -270,7 +282,12 @@ ukuran_batch_efektif = cfg["ukuran_batch_latih"] * cfg["akumulasi_gradien"]
 print(f"Ukuran batch latih: {cfg['ukuran_batch_latih']} (efektif {ukuran_batch_efektif})")
 print(f"Ukuran batch evaluasi: {cfg['ukuran_batch_eval']}")
 
-print("\n# 6) Inisialisasi Model")
+# ==========================
+# 6) Inisialisasi Model
+# ==========================
+print("\n# ==========================")
+print("# 6) Inisialisasi Model")
+print("# ==========================")
 
 label2id = {"bukan_hoaks": 0, "hoaks": 1}
 id2label = {0: "bukan_hoaks", 1: "hoaks"}
@@ -285,14 +302,17 @@ model.to(perangkat)
 
 bobot_kelas = None
 if cfg["strategi_imbalance"] == "bobot":
-    nilai = compute_class_weight(class_weight="balanced", classes=np.array([0, 1]), y=train_df[kolom_label])
-    bobot_kelas = torch.tensor(nilai, dtype=torch.float32, device=perangkat)
-    print(f"Menggunakan bobot kelas: {nilai}")
+    nilai_bobot = compute_class_weight(
+        class_weight="balanced",
+        classes=np.array([0, 1]),
+        y=train_df[kolom_label]
+    )
+    bobot_kelas = torch.tensor(nilai_bobot, dtype=torch.float32, device=perangkat)
+    print(f"Menggunakan bobot kelas: {nilai_bobot}")
 else:
     print("Tidak menggunakan bobot kelas khusus.")
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["laju_pembelajaran"], weight_decay=0.01)
-
 langkah_total = math.ceil(len(loader_latih) / cfg["akumulasi_gradien"]) * cfg["epoh"]
 langkah_warmup = int(langkah_total * cfg["warmup_proporsi"])
 penjadwal = get_linear_schedule_with_warmup(
@@ -300,43 +320,31 @@ penjadwal = get_linear_schedule_with_warmup(
     num_warmup_steps=langkah_warmup,
     num_training_steps=langkah_total
 )
-
 scaler = torch.cuda.amp.GradScaler(enabled=cfg["fp16"] and perangkat.type == "cuda")
+bobot_kerugian = nn.CrossEntropyLoss(weight=bobot_kelas)
 
-print("\n# 7) Pelatihan")
+print("Model siap dilatih.")
+
+# ==========================
+# 7) Pelatihan dengan Pemantauan
+# ==========================
+print("\n# ==========================")
+print("# 7) Pelatihan dengan Pemantauan")
+print("# ==========================")
+
 
 class MemoriTidakCukupError(RuntimeError):
-    pass
+    """Kesalahan khusus untuk menangani OOM."""
 
-riwayat = {
-    "epoh": [],
-    "latih_loss": [],
-    "valid_loss": [],
-    "valid_f1": []
-}
-
-terbaik = {
-    "nilai": -float("inf"),
-    "epoh": -1,
-    "state_dict": None,
-    "loss": float("inf")
-}
-
-kesabaran = cfg["patience_henti_awal"]
-
-bobot_kerugian = nn.CrossEntropyLoss(weight=bobot_kelas)
 
 def evaluasi(model_eval, loader):
     model_eval.eval()
-    semua_label = []
-    semua_pred = []
-    semua_prob = []
+    semua_label, semua_pred, semua_prob = [], [], []
     total_loss = 0.0
     with torch.no_grad():
         for batch in loader:
-            label_batch = batch.pop("labels")
+            label_batch = batch.pop("labels").to(perangkat)
             batch = {k: v.to(perangkat) for k, v in batch.items()}
-            label_batch = label_batch.to(perangkat)
             with torch.cuda.amp.autocast(enabled=cfg["fp16"] and perangkat.type == "cuda"):
                 keluaran = model_eval(**batch)
                 loss = bobot_kerugian(keluaran.logits, label_batch)
@@ -353,8 +361,12 @@ def evaluasi(model_eval, loader):
     f1 = f1_score(semua_label, semua_pred, zero_division=0)
     return rata_loss, akurasi, presisi, recall, f1, semua_label, semua_pred, semua_prob
 
-percobaan_selesai = False
 
+riwayat = {"epoh": [], "latih_loss": [], "valid_loss": [], "valid_f1": []}
+terbaik = {"nilai": -float("inf"), "epoh": -1, "state_dict": None, "loss": float("inf")}
+kesabaran = cfg["patience_henti_awal"]
+
+percobaan_selesai = False
 while not percobaan_selesai:
     try:
         for epoh in range(cfg["epoh"]):
@@ -364,9 +376,8 @@ while not percobaan_selesai:
             pbar = tqdm(loader_latih, desc=f"Epoh {epoh + 1}/{cfg['epoh']} - latih", leave=False)
             optimizer.zero_grad(set_to_none=True)
             for batch_id, batch in enumerate(pbar):
-                label_batch = batch.pop("labels")
+                label_batch = batch.pop("labels").to(perangkat)
                 batch = {k: v.to(perangkat) for k, v in batch.items()}
-                label_batch = label_batch.to(perangkat)
                 try:
                     with torch.cuda.amp.autocast(enabled=cfg["fp16"] and perangkat.type == "cuda"):
                         keluaran = model(**batch)
@@ -422,8 +433,8 @@ while not percobaan_selesai:
         if perangkat.type != "cuda":
             raise
         if cfg["ukuran_batch_latih"] == 1 and cfg["akumulasi_gradien"] >= 8:
-            raise RuntimeError("Tidak dapat mengurangi batch lebih jauh setelah OOM.")
-        print("Peringatan: CUDA OOM terdeteksi. Mengurangi ukuran batch dan mengulangi pelatihan.")
+            raise RuntimeError("Tidak dapat mengurangi batch lebih lanjut setelah OOM.")
+        print("Peringatan: CUDA OOM terdeteksi. Menyesuaikan parameter pelatihan.")
         cfg["ukuran_batch_latih"] = max(1, cfg["ukuran_batch_latih"] // 2)
         cfg["akumulasi_gradien"] = min(cfg["akumulasi_gradien"] * 2, 8)
         loader_latih = buat_dataloader(dataset_latih, cfg["ukuran_batch_latih"], True)
@@ -440,57 +451,47 @@ while not percobaan_selesai:
             num_training_steps=langkah_total
         )
         scaler = torch.cuda.amp.GradScaler(enabled=cfg["fp16"] and perangkat.type == "cuda")
-        riwayat = {"epoh": [], "latih_loss": [], "valid_loss": [], "valid_f1": []}
-        terbaik = {"nilai": -float("inf"), "epoh": -1, "state_dict": None, "loss": float("inf")}
-        kesabaran = cfg["patience_henti_awal"]
-
-print("\n# 8) Evaluasi & Laporan")
 
 if terbaik["state_dict"] is not None:
     model.load_state_dict({k: v.to(perangkat) for k, v in terbaik["state_dict"].items()})
-    print(f"Mengembalikan bobot terbaik dari epoh {terbaik['epoh']}.")
+    print(f"Bobot terbaik dari epoh {terbaik['epoh']} telah dimuat untuk evaluasi.")
+else:
+    print("Tidak ada bobot terbaik yang tersimpan.")
+
+# ==========================
+# 8) Evaluasi dan Pelaporan
+# ==========================
+print("\n# ==========================")
+print("# 8) Evaluasi dan Pelaporan")
+print("# ==========================")
 
 uji_loss, uji_acc, uji_prec, uji_rec, uji_f1, label_uji, pred_uji, prob_uji = evaluasi(model, loader_uji)
-print("Hasil uji:")
 print(
-    f"  loss_uji={uji_loss:.4f} | akurasi={uji_acc:.4f} | presisi={uji_prec:.4f} | "
+    f"Hasil uji: loss={uji_loss:.4f} | akurasi={uji_acc:.4f} | presisi={uji_prec:.4f} | "
     f"recall={uji_rec:.4f} | f1={uji_f1:.4f}"
 )
 
 nilai_roc = None
 if cfg["tampilkan_roc"]:
     try:
-        prob_array = np.array(prob_uji)
-        nilai_roc = roc_auc_score(label_uji, prob_array, average="macro", multi_class="ovr")
-        print(f"  ROC-AUC makro={nilai_roc:.4f}")
-    except ValueError:
-        print("  ROC-AUC tidak dapat dihitung karena label tidak lengkap.")
-else:
-    print("  ROC-AUC makro dilewati sesuai konfigurasi.")
+        prob_kelas_positif = [p[1] for p in prob_uji]
+        nilai_roc = roc_auc_score(label_uji, prob_kelas_positif)
+        print(f"ROC-AUC makro: {nilai_roc:.4f}")
+    except Exception as err:
+        print(f"ROC-AUC tidak dapat dihitung: {err}")
 
-laporan_dict = classification_report(
-    label_uji,
-    pred_uji,
-    target_names=["bukan_hoaks", "hoaks"],
-    zero_division=0,
-    output_dict=True
-)
-laporan_df = pd.DataFrame(laporan_dict).T
-laporan_df = laporan_df.rename(
-    index={
-        "macro avg": "rata-rata makro",
-        "weighted avg": "rata-rata berbobot"
-    },
-    columns={
-        "precision": "presisi",
-        "recall": "recall",
-        "f1-score": "f1",
-        "support": "jumlah"
-    }
-)
-if "jumlah" in laporan_df.columns:
+laporan = classification_report(label_uji, pred_uji, output_dict=True, zero_division=0)
+laporan_df = pd.DataFrame(laporan).T.rename(index={
+    "0": "bukan hoaks",
+    "1": "hoaks",
+    "accuracy": "akurasi",
+    "macro avg": "rata-rata makro",
+    "weighted avg": "rata-rata berbobot"
+})
+if "support" in laporan_df.columns:
+    laporan_df.rename(columns={"precision": "presisi", "recall": "recall", "f1-score": "f1", "support": "jumlah"}, inplace=True)
     laporan_df["jumlah"] = laporan_df["jumlah"].fillna(0).round().astype(int)
-print("Laporan klasifikasi (dalam bahasa Indonesia):")
+print("Laporan klasifikasi:")
 print(laporan_df.to_string(float_format=lambda x: f"{x:.4f}"))
 
 matriks = confusion_matrix(label_uji, pred_uji)
@@ -503,7 +504,8 @@ plt.xticks(ticks, ["Prediksi bukan hoaks", "Prediksi hoaks"])
 plt.yticks(ticks, ["Aktual bukan hoaks", "Aktual hoaks"])
 for i in range(matriks.shape[0]):
     for j in range(matriks.shape[1]):
-        plt.text(j, i, format(matriks[i, j], "d"), horizontalalignment="center", color="white" if matriks[i, j] > matriks.max() / 2 else "black")
+        warna = "white" if matriks[i, j] > matriks.max() / 2 else "black"
+        plt.text(j, i, format(matriks[i, j], "d"), horizontalalignment="center", color=warna)
 plt.ylabel("Label Aktual")
 plt.xlabel("Label Prediksi")
 plt.tight_layout()
@@ -536,13 +538,18 @@ if cfg["plot_kurva"] and riwayat["epoh"]:
     print("Kurva F1 disimpan ke kurva_f1.png.")
     plt.close()
 
-print("\nContoh prediksi benar/salah:")
+print("Contoh prediksi benar/salah:")
 contoh_df = test_df.assign(prediksi=pred_uji)
 contoh_df["status"] = np.where(contoh_df["label"] == contoh_df["prediksi"], "benar", "salah")
 contoh_tampil = contoh_df.sample(n=min(cfg["jumlah_contoh_tinjau"], len(contoh_df)), random_state=cfg["nilai_acak"])
 print(contoh_tampil[["teks", "label", "prediksi", "status"]])
 
-print("\n# 9) Inferensi & Simpan Model")
+# ==========================
+# 9) Inferensi dan Penyimpanan Model
+# ==========================
+print("\n# ==========================")
+print("# 9) Inferensi dan Penyimpanan Model")
+print("# ==========================")
 
 direktori_model = Path(cfg["direktori_model"])
 direktori_model.mkdir(parents=True, exist_ok=True)
@@ -551,17 +558,13 @@ tokenizer.save_pretrained(direktori_model)
 info_label = {"id2label": id2label, "label2id": label2id}
 with open(direktori_model / "label_mapping.json", "w", encoding="utf-8") as f:
     json.dump(info_label, f, ensure_ascii=False, indent=2)
-print(f"Model dan tokenizer disimpan ke {direktori_model}.")
 
-print("Menyimpan konfigurasi ke file.")
 pd.Series(cfg).to_json(direktori_model / "konfigurasi.json")
-
-print("Menyimpan riwayat pelatihan.")
 pd.DataFrame(riwayat).to_csv(direktori_model / "riwayat_pelatihan.csv", index=False)
+print(f"Model dan artefak disimpan ke {direktori_model.resolve()}.")
 
-print("Menyiapkan fungsi inferensi.")
 
-def prediksi_hoaks(teks):
+def prediksi_hoaks(teks: str) -> dict:
     model.eval()
     masukan = tokenizer(
         teks,
@@ -574,17 +577,18 @@ def prediksi_hoaks(teks):
         with torch.cuda.amp.autocast(enabled=cfg["fp16"] and perangkat.type == "cuda"):
             keluaran = model(**masukan)
             probabilitas = torch.softmax(keluaran.logits, dim=-1).cpu().numpy()[0]
-    label_idx = int(np.argmax(probabilitas))
-    nama_label = id2label[label_idx]
-    skor = float(probabilitas[label_idx])
+    indeks = int(np.argmax(probabilitas))
+    nama_label = id2label[indeks]
+    skor = float(probabilitas[indeks])
     return {"label": nama_label, "skor": skor}
+
 
 contoh_teks_baru = [
     "Pesan berantai menyebutkan pemerintah akan mematikan listrik nasional selama tiga hari untuk menangkap penjahat.",
     "Pemerintah daerah mengumumkan jadwal vaksinasi gratis di puskesmas setempat."
 ]
 
-print("Melakukan inferensi batch pada contoh teks baru.")
+print("Prediksi pada contoh teks baru:")
 masukan_batch = tokenizer(
     contoh_teks_baru,
     truncation=True,
@@ -598,22 +602,13 @@ with torch.no_grad():
         probabilitas_batch = torch.softmax(keluaran_batch.logits, dim=-1).cpu().numpy()
 
 for teks, prob in zip(contoh_teks_baru, probabilitas_batch):
-    label_idx = int(np.argmax(prob))
-    nama_label = id2label[label_idx]
-    skor = float(prob[label_idx])
+    indeks = int(np.argmax(prob))
+    nama_label = id2label[indeks]
+    skor = float(prob[indeks])
+    status = "hoaks" if nama_label == "hoaks" else "bukan hoaks"
     print("-" * 60)
     print(f"Teks: {teks}")
-    print(f"Prediksi: {nama_label} (skor {skor:.4f})")
-
-print("\n# 10) Contoh Pemakaian Lanjutan")
-
-print("Untuk memuat ulang model:")
-print(
-    f"  from transformers import AutoTokenizer, AutoModelForSequenceClassification\n"
-    f"  direktori = '{direktori_model}'\n"
-    f"  tokenizer = AutoTokenizer.from_pretrained(direktori)\n"
-    f"  model = AutoModelForSequenceClassification.from_pretrained(direktori)"
-)
+    print(f"Prediksi: {status} (skor {skor:.4f})")
 
 print("Ringkasan akhir:")
 print(
@@ -624,4 +619,16 @@ if nilai_roc is not None:
     print(f"  ROC-AUC makro: {nilai_roc:.4f}")
 print(f"  Bobot terbaik berasal dari epoh {terbaik['epoh']} dengan {cfg['metrik_patokan']} {terbaik['nilai']:.4f}.")
 print(f"  Model tersimpan di: {direktori_model.resolve()}")
-print("  Gunakan fungsi prediksi_hoaks(teks) untuk inferensi satu kalimat.")
+print("  Gunakan fungsi prediksi_hoaks(teks) untuk inferensi cepat.")
+
+# ==========================
+# 10) Masukan Pengguna untuk Prediksi
+# ==========================
+print("\n# ==========================")
+print("# 10) Masukan Pengguna untuk Prediksi")
+print("# ==========================")
+
+teks_uji = input("Masukkan teks berita yang ingin diuji: ")
+hasil = prediksi_hoaks(teks_uji)
+status_hasil = "hoaks" if hasil["label"] == "hoaks" else "bukan hoaks"
+print(f"Hasil prediksi: {status_hasil} dengan keyakinan {hasil['skor']:.4f}")
