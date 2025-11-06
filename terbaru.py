@@ -11,6 +11,7 @@ installs.
 Usage examples:
     python terbaru.py                # train model and save to models/hoax_detector.joblib
     python terbaru.py train --interactive
+    python terbaru.py train --tune --cv-folds 3
     python terbaru.py predict --text "Contoh berita yang ingin dicek."
 """
 
@@ -27,8 +28,8 @@ import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.utils.class_weight import compute_class_weight
 
@@ -78,7 +79,9 @@ class TrainingResult:
     report: str
     confusion: np.ndarray
     accuracy: float
+    roc_auc: float | None
     test_samples: int
+    best_params: dict[str, object] | None
 
 
 def normalise_text(text: str) -> str:
@@ -173,6 +176,10 @@ def train_model(
     data: pd.DataFrame,
     test_size: float = 0.2,
     random_state: int = 42,
+    *,
+    tune: bool = False,
+    cv_folds: int = 5,
+    n_jobs: int | None = None,
 ) -> TrainingResult:
     """Split data, train the model, and compute evaluation metrics."""
     X = data["teks_bersih"].to_numpy()
@@ -191,9 +198,51 @@ def train_model(
     weight_dict = {cls: weight for cls, weight in zip(classes, weights)}
 
     pipeline = build_pipeline(weight_dict)
-    pipeline.fit(X_train, y_train)
+    best_params: dict[str, object] | None = None
+    roc_auc: float | None = None
+
+    if tune:
+        class_counts = np.bincount(y_train)
+        positive_counts = class_counts[class_counts > 0]
+        min_count = int(positive_counts.min()) if len(positive_counts) else 0
+        folds = min(cv_folds, min_count) if min_count else 0
+        if folds >= 2:
+            param_grid = {
+                "tfidf__min_df": [1, 2, 3],
+                "tfidf__max_df": [0.9, 1.0],
+                "clf__C": [0.5, 1.0, 2.0, 4.0],
+            }
+            search = GridSearchCV(
+                pipeline,
+                param_grid=param_grid,
+                scoring="f1_macro",
+                cv=folds,
+                n_jobs=n_jobs,
+                verbose=0,
+            )
+            try:
+                search.fit(X_train, y_train)
+            except KeyboardInterrupt:
+                print("Tuning dibatalkan secara manual. Melanjutkan dengan model default.")
+                pipeline.fit(X_train, y_train)
+            else:
+                pipeline = search.best_estimator_
+                best_params = search.best_params_
+        else:
+            print(
+                "Peringatan: Data training terlalu sedikit untuk grid search yang stabil."
+                " Melanjutkan tanpa tuning."
+            )
+            pipeline.fit(X_train, y_train)
+    else:
+        pipeline.fit(X_train, y_train)
 
     y_pred = pipeline.predict(X_test)
+    try:
+        probabilities = pipeline.predict_proba(X_test)[:, VALID_LABEL]
+        roc_auc = roc_auc_score(y_test, probabilities)
+    except Exception:
+        roc_auc = None
     report = classification_report(
         y_test, y_pred, target_names=[LABEL_NAMES[c] for c in classes], digits=4
     )
@@ -205,7 +254,9 @@ def train_model(
         report=report,
         confusion=confusion,
         accuracy=accuracy,
+        roc_auc=roc_auc,
         test_samples=len(y_test),
+        best_params=best_params,
     )
 
 
@@ -227,16 +278,25 @@ def predict_texts(model: Pipeline, texts: Sequence[str]) -> List[dict[str, objec
     if not texts:
         return []
     cleaned_inputs = [normalise_text(text) for text in texts]
-    probabilities = model.predict_proba(cleaned_inputs)[:, VALID_LABEL]
+    if hasattr(model, "predict_proba"):
+        probabilities = model.predict_proba(cleaned_inputs)
+    else:
+        probabilities = np.full((len(cleaned_inputs), len(getattr(model, "classes_", []))), np.nan)
+    class_indices = {int(label): idx for idx, label in enumerate(getattr(model, "classes_", []))}
+    prob_valid_idx = class_indices.get(VALID_LABEL)
+    prob_hoax_idx = class_indices.get(HOAX_LABEL)
     predictions = model.predict(cleaned_inputs)
     results = []
-    for original, cleaned, label, prob in zip(texts, cleaned_inputs, predictions, probabilities):
+    for original, cleaned, label, probs in zip(texts, cleaned_inputs, predictions, probabilities):
+        prob_valid = float(probs[prob_valid_idx]) if prob_valid_idx is not None else float("nan")
+        prob_hoax = float(probs[prob_hoax_idx]) if prob_hoax_idx is not None else float("nan")
         results.append(
             {
                 "original": original,
                 "cleaned": cleaned,
                 "label": LABEL_NAMES[int(label)],
-                "probability_valid": float(prob),
+                "probability_valid": prob_valid,
+                "probability_hoax": prob_hoax,
             }
         )
     return results
@@ -279,6 +339,9 @@ def cmd_train(args: argparse.Namespace) -> None:
         data,
         test_size=args.test_size,
         random_state=args.random_state,
+        tune=args.tune,
+        cv_folds=args.cv_folds,
+        n_jobs=args.n_jobs,
     )
 
     print("\n=== Laporan Evaluasi ===")
@@ -286,6 +349,10 @@ def cmd_train(args: argparse.Namespace) -> None:
     print("Confusion matrix [HOAX, ASLI]:")
     print(result.confusion)
     print(f"Akurasi: {result.accuracy:.4f} (n={result.test_samples})")
+    if result.roc_auc is not None:
+        print(f"ROC-AUC: {result.roc_auc:.4f}")
+    if result.best_params:
+        print(f"Best params: {result.best_params}")
 
     if not args.no_save:
         save_model(result.model, args.model_path)
@@ -321,6 +388,7 @@ def cmd_predict(args: argparse.Namespace) -> None:
         print(f"\nBerita {idx}:")
         print(f"  Label         : {result['label']}")
         print(f"  Probabilitas  : {result['probability_valid']:.4f} (ASLI)")
+        print(f"  Probabilitas  : {result['probability_hoax']:.4f} (HOAKS)")
         print(f"  Teks asli     : {result['original']}")
         print(f"  Teks bersih   : {result['cleaned']}")
 
@@ -340,6 +408,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--model-path", type=Path, default=DEFAULT_MODEL_PATH, help="Lokasi penyimpanan model terlatih.")
     train_parser.add_argument("--no-save", action="store_true", help="Jangan simpan model setelah training.")
     train_parser.add_argument("--interactive", action="store_true", help="Masuk ke mode interaktif setelah training.")
+    train_parser.add_argument("--tune", action="store_true", help="Aktifkan grid search sederhana untuk mencari hyperparameter terbaik.")
+    train_parser.add_argument("--cv-folds", type=int, default=5, help="Jumlah fold cross-validation saat tuning (default: 5).")
+    train_parser.add_argument("--n-jobs", type=int, default=None, help="Jumlah parallel job untuk grid search (default: mengikuti scikit-learn).")
     train_parser.set_defaults(func=cmd_train)
 
     predict_parser = subparsers.add_parser("predict", help="Gunakan model terlatih untuk prediksi.")
