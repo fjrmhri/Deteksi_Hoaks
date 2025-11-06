@@ -456,7 +456,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--tune", action="store_true", help="Aktifkan grid search sederhana untuk mencari hyperparameter terbaik.")
     train_parser.add_argument("--cv-folds", type=int, default=5, help="Jumlah fold cross-validation saat tuning (default: 5).")
     train_parser.add_argument("--n-jobs", type=int, default=None, help="Jumlah parallel job untuk grid search (default: mengikuti scikit-learn).")
+
     train_parser.add_argument("--max-samples", type=int, help="Batasi jumlah sampel saat training (berguna untuk pengujian cepat).")
+
+
     train_parser.set_defaults(func=cmd_train)
 
     predict_parser = subparsers.add_parser("predict", help="Gunakan model terlatih untuk prediksi.")
