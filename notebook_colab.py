@@ -5,9 +5,20 @@ print("# ==========================")
 print("# 1) Persiapan Lingkungan")
 print("# ==========================")
 
+import os
 import subprocess
 import sys
+import time
 
+os.environ.setdefault("HF_HUB_DISABLE_HEAD_REQUEST", "1")
+os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+
+try:
+    from huggingface_hub import constants as hf_constants
+except Exception:
+    hf_constants = None
+
+import requests
 paket_wajib = {
     "torch": "torch==2.1.2",  # mendukung CUDA 11.8 di Colab T4
     "transformers": "transformers==4.38.2",
@@ -18,28 +29,53 @@ paket_wajib = {
     "scikit-learn": "scikit-learn==1.3.2",
     "tqdm": "tqdm==4.66.2",
     "matplotlib": "matplotlib==3.8.2",
-    "imbalanced-learn": "imbalanced-learn==0.11.0"
+    "imbalanced-learn": "imbalanced-learn==0.11.0",
+    "openpyxl": "openpyxl==3.1.2",
+    "sentencepiece": "sentencepiece==0.1.99"
 }
 
-paket_instal = list(paket_wajib.values())
+paket_instal = {k: v for k, v in paket_wajib.items() if k != "torch"}
 print("Memastikan versi paket yang dibutuhkan terpasang.")
 
-# ``sys.executable -m pip`` works both in standard Python environments and in
-# Google Colab.  A previous revision mistakenly tried to call ``-m !pip`` which
-# causes ``ModuleNotFoundError`` because ``!`` is shell syntax that should not be
-# used when invoking modules via ``python -m``.  Building the command list
-# explicitly avoids that issue and keeps the invocation compatible across
-# platforms.
-pip_command = [
+pip_base = [
     sys.executable,
     "-m",
     "pip",
     "install",
     "--quiet",
     "--upgrade",
-    *paket_instal,
 ]
-subprocess.check_call(pip_command)
+
+gpu_dir = os.path.exists("/proc/driver/nvidia/version")
+
+torch_perintah_gpu = pip_base + [
+    paket_wajib["torch"],
+    "--extra-index-url",
+    "https://download.pytorch.org/whl/cu118",
+]
+torch_perintah_cpu = pip_base + [
+    paket_wajib["torch"],
+    "--index-url",
+    "https://download.pytorch.org/whl/cpu",
+]
+
+if gpu_dir:
+    try:
+        subprocess.check_call(torch_perintah_gpu)
+    except subprocess.CalledProcessError:
+        print("Instalasi torch CUDA gagal, mencoba versi CPU.")
+        subprocess.check_call(torch_perintah_cpu)
+else:
+    print("GPU tidak terdeteksi pada sistem, memasang torch versi CPU.")
+    subprocess.check_call(torch_perintah_cpu)
+
+if paket_instal:
+    pip_command = pip_base + list(paket_instal.values())
+    subprocess.check_call(pip_command)
+
+if hf_constants is not None:
+    hf_constants.HF_HUB_DISABLE_HEAD_REQUEST = True
+    hf_constants.HF_HUB_ENABLE_HF_TRANSFER = True
 
 import torch
 
@@ -121,8 +157,106 @@ cfg = {
     "persistent_workers": True,
     "plot_kurva": True,
     "tampilkan_roc": False,
-    "jumlah_contoh_tinjau": 5
+    "jumlah_contoh_tinjau": 5,
+    "maks_batch_latih": None,
+    "maks_batch_eval": None
 }
+
+cfg["fp16"] = cfg["fp16"] and perangkat.type == "cuda"
+if perangkat.type != "cuda" and cfg["maks_batch_latih"] is None:
+    cfg["maks_batch_latih"] = 2
+    print(
+        "Menjalankan dalam mode CPU, membatasi batch latih per epoh menjadi"
+        f" {cfg['maks_batch_latih']} untuk menjaga waktu eksekusi."
+    )
+if perangkat.type != "cuda" and cfg["maks_batch_eval"] is None:
+    cfg["maks_batch_eval"] = 4
+    print(
+        "Membatasi batch evaluasi per epoh menjadi"
+        f" {cfg['maks_batch_eval']} untuk demonstrasi cepat di CPU."
+    )
+if perangkat.type != "cuda":
+    if cfg["num_workers"] != 0:
+        cfg["num_workers"] = 0
+        print("Menonaktifkan worker DataLoader tambahan pada CPU.")
+    if cfg["persistent_workers"]:
+        cfg["persistent_workers"] = False
+    if cfg["epoh"] > 1:
+        cfg["epoh"] = 1
+        print("Menetapkan epoh=1 untuk demonstrasi CPU cepat.")
+if perangkat.type != "cuda" and cfg["nama_model"] == "indolem/indobert-base-uncased":
+    cfg["nama_model"] = "cahya/distilbert-base-indonesian"
+    print("Menggunakan model DistilBERT Indonesia untuk eksekusi CPU.")
+
+
+def unduh_model_hf(nama_model: str, cache_root: Path = Path("hf_cache")) -> Path:
+    """Pastikan model Hugging Face tersedia secara lokal."""
+
+    kandidat_lokal = Path(nama_model)
+    if kandidat_lokal.exists() and kandidat_lokal.is_dir():
+        return kandidat_lokal
+
+    tujuan = cache_root / nama_model.replace("/", "_")
+    tujuan.mkdir(parents=True, exist_ok=True)
+
+    file_wajib = [
+        "config.json",
+        "pytorch_model.bin",
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+        "vocab.txt",
+    ]
+    file_opsional = {"tokenizer.json", "added_tokens.json"}
+    dasar_url = f"https://huggingface.co/{nama_model}/resolve/main/"
+
+    for nama_berkas in file_wajib + sorted(file_opsional):
+        target = tujuan / nama_berkas
+        if target.exists():
+            continue
+        url = dasar_url + nama_berkas
+        print(f"Mengunduh {nama_berkas} dari Hugging Face...")
+        percobaan = 0
+        while True:
+            try:
+                resp = requests.get(
+                    url,
+                    stream=True,
+                    timeout=120,
+                    headers={"User-Agent": "hoax-detector/1.0"}
+                )
+            except requests.RequestException as exc:  # pragma: no cover - jaringan
+                if percobaan < 2:
+                    jeda = 2 ** percobaan
+                    print(f"  Koneksi gagal ({exc}), mencoba lagi dalam {jeda} dtk.")
+                    time.sleep(jeda)
+                    percobaan += 1
+                    continue
+                raise RuntimeError(f"Gagal terhubung ke Hugging Face untuk {nama_berkas}.") from exc
+
+            if resp.status_code == 404 and nama_berkas in file_opsional:
+                print(f"  {nama_berkas} tidak ditemukan, dilewati.")
+                break
+
+            try:
+                resp.raise_for_status()
+            except requests.HTTPError as exc:
+                if resp.status_code >= 500 and percobaan < 2:
+                    jeda = 2 ** percobaan
+                    print(f"  Server {resp.status_code} ({exc}); mencoba lagi dalam {jeda} dtk.")
+                    time.sleep(jeda)
+                    percobaan += 1
+                    continue
+                raise RuntimeError(
+                    f"Gagal mengunduh {nama_berkas} (status {resp.status_code})."
+                ) from exc
+
+            with open(target, "wb") as f:
+                for potongan in resp.iter_content(chunk_size=8192):
+                    if potongan:
+                        f.write(potongan)
+            break
+
+    return tujuan
 
 if cfg["acak_tetap"]:
     print("Mengatur seed acak seragam.")
@@ -151,22 +285,40 @@ jalur_data = Path(cfg["jalur_data"])
 jalur_data.parent.mkdir(parents=True, exist_ok=True)
 
 if not jalur_data.exists():
-    print(f"Berkas {jalur_data} tidak ditemukan. Membuat contoh sintetis.")
-    contoh_data = pd.DataFrame(
-        {
-            "teks": [
-                "Vaksin COVID-19 mengandung chip pelacak yang akan mengendalikan pikiran manusia.",
-                "Kementerian Kesehatan memastikan vaksin COVID-19 aman dan tidak mengandung chip.",
-                "Video tentang bank tutup permanen adalah rekayasa lama yang kembali disebarkan.",
-                "Bank Indonesia menyatakan layanan perbankan berjalan normal.",
-                "Hoaks telur plastik kembali muncul di media sosial.",
-                "Produsen makanan menegaskan telur yang beredar asli dan aman dikonsumsi."
-            ],
-            "label": [1, 0, 1, 0, 1, 0]
-        }
-    )
-    contoh_data.to_csv(jalur_data, index=False)
-    print("Contoh dataset sintetis selesai dibuat.")
+    print(f"Berkas {jalur_data} tidak ditemukan. Menyiapkan dari sumber Excel.")
+    sumber_excel = Path("dataset") / "Cleaned"
+    berkas_excel = sorted(sumber_excel.glob("*.xlsx"))
+    if not berkas_excel:
+        raise FileNotFoundError(
+            "Tidak menemukan dataset Excel di dataset/Cleaned. Pastikan repositori berisi data yang diperlukan."
+        )
+
+    def pilih_kolom_teks(df: pd.DataFrame) -> str:
+        kandidat = ["Clean Narasi", "Narasi", "isi_berita", "teks", "text", "isi", "artikel", "judul"]
+        for nama in kandidat:
+            if nama in df.columns:
+                return nama
+        return df.columns[0]
+
+    himpunan = []
+    for path in berkas_excel:
+        df_excel = pd.read_excel(path)
+        kol_teks = pilih_kolom_teks(df_excel)
+        if "hoax" not in df_excel.columns:
+            raise ValueError(f"File {path.name} tidak memiliki kolom 'hoax'.")
+        subset = df_excel[[kol_teks, "hoax"]].copy()
+        subset.columns = ["teks", "label"]
+        subset["teks"] = subset["teks"].astype(str)
+        subset["label"] = subset["label"].astype(int)
+        subset["sumber"] = path.stem
+        himpunan.append(subset)
+
+    gabungan = pd.concat(himpunan, ignore_index=True)
+    gabungan = gabungan.dropna(subset=["teks"])
+    gabungan = gabungan[gabungan["teks"].str.strip().str.len() > 0]
+    gabungan = gabungan.drop_duplicates(subset=["teks", "label"])
+    gabungan.to_csv(jalur_data, index=False)
+    print(f"Dataset gabungan disimpan ke {jalur_data} dengan {len(gabungan)} baris.")
 
 data = pd.read_csv(jalur_data)
 kolom_teks = "teks"
@@ -237,7 +389,8 @@ if cfg["strategi_imbalance"] == "oversampling":
     print(f"Jumlah baris latih setelah oversampling: {len(train_df)}")
 
 print("Memuat tokenizer Indonesia...")
-tokenizer = AutoTokenizer.from_pretrained(cfg["nama_model"])
+lokasi_model = unduh_model_hf(cfg["nama_model"])
+tokenizer = AutoTokenizer.from_pretrained(lokasi_model)
 
 
 def buat_dataset(dataframe: pd.DataFrame) -> Dataset:
@@ -309,7 +462,7 @@ label2id = {"bukan_hoaks": 0, "hoaks": 1}
 id2label = {0: "bukan_hoaks", 1: "hoaks"}
 
 model = AutoModelForSequenceClassification.from_pretrained(
-    cfg["nama_model"],
+    lokasi_model,
     num_labels=2,
     id2label=id2label,
     label2id=label2id
@@ -357,20 +510,27 @@ def evaluasi(model_eval, loader):
     model_eval.eval()
     semua_label, semua_pred, semua_prob = [], [], []
     total_loss = 0.0
+    total_data = 0
+    maks_eval = cfg.get("maks_batch_eval")
     with torch.no_grad():
-        for batch in loader:
+        for batch_id, batch in enumerate(loader):
+            if maks_eval is not None and batch_id >= maks_eval:
+                print(f"Batas {maks_eval} batch evaluasi tercapai.")
+                break
             label_batch = batch.pop("labels").to(perangkat)
             batch = {k: v.to(perangkat) for k, v in batch.items()}
             with torch.cuda.amp.autocast(enabled=cfg["fp16"] and perangkat.type == "cuda"):
                 keluaran = model_eval(**batch)
                 loss = bobot_kerugian(keluaran.logits, label_batch)
             total_loss += loss.item() * label_batch.size(0)
+            total_data += label_batch.size(0)
             pred = torch.argmax(keluaran.logits, dim=1)
             prob = torch.softmax(keluaran.logits, dim=-1)
             semua_label.extend(label_batch.cpu().tolist())
             semua_pred.extend(pred.cpu().tolist())
             semua_prob.extend(prob.cpu().tolist())
-    rata_loss = total_loss / len(loader.dataset)
+    total_data = max(total_data, 1)
+    rata_loss = total_loss / total_data
     akurasi = accuracy_score(semua_label, semua_pred)
     presisi = precision_score(semua_label, semua_pred, zero_division=0)
     recall = recall_score(semua_label, semua_pred, zero_division=0)
@@ -392,6 +552,11 @@ while not percobaan_selesai:
             pbar = tqdm(loader_latih, desc=f"Epoh {epoh + 1}/{cfg['epoh']} - latih", leave=False)
             optimizer.zero_grad(set_to_none=True)
             for batch_id, batch in enumerate(pbar):
+                if cfg["maks_batch_latih"] is not None and batch_id >= cfg["maks_batch_latih"]:
+                    print(
+                        f"Batas {cfg['maks_batch_latih']} batch latih tercapai pada epoh {epoh + 1}."
+                    )
+                    break
                 label_batch = batch.pop("labels").to(perangkat)
                 batch = {k: v.to(perangkat) for k, v in batch.items()}
                 try:
@@ -555,7 +720,13 @@ if cfg["plot_kurva"] and riwayat["epoh"]:
     plt.close()
 
 print("Contoh prediksi benar/salah:")
-contoh_df = test_df.assign(prediksi=pred_uji)
+jumlah_pred = len(pred_uji)
+contoh_df = test_df.head(jumlah_pred).copy()
+if jumlah_pred < len(test_df):
+    print(
+        f"  Hanya menampilkan {jumlah_pred} contoh uji pertama karena evaluasi dipangkas."
+    )
+contoh_df = contoh_df.assign(prediksi=pred_uji)
 contoh_df["status"] = np.where(contoh_df["label"] == contoh_df["prediksi"], "benar", "salah")
 contoh_tampil = contoh_df.sample(n=min(cfg["jumlah_contoh_tinjau"], len(contoh_df)), random_state=cfg["nilai_acak"])
 print(contoh_tampil[["teks", "label", "prediksi", "status"]])
