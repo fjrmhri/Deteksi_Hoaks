@@ -71,6 +71,48 @@ URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
 MENTION_PATTERN = re.compile(r"@[A-Za-z0-9_]+")
 NON_ALPHA_PATTERN = re.compile(r"[^a-z0-9\s.,;:!?()'\-]")
 LEAK_PATTERNS = [re.compile(p) for p in (r"\bhoaks?\b", r"\bhoax(es)?\b", r"\bturnbackhoax\b")]
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F1E0-\U0001F1FF"  # Flags
+    "\U0001F300-\U0001F5FF"  # Symbols & pictographs
+    "\U0001F600-\U0001F64F"  # Emoticons
+    "\U0001F680-\U0001F6FF"  # Transport & map
+    "\U0001F700-\U0001F77F"  # Alchemical symbols
+    "\U0001F780-\U0001F7FF"  # Geometric shapes extended
+    "\U0001F800-\U0001F8FF"  # Supplemental arrows-C
+    "\U0001F900-\U0001F9FF"  # Supplemental symbols & pictographs
+    "\U0001FA00-\U0001FA6F"  # Chess symbols & extended pictographs
+    "\U0001FA70-\U0001FAFF"  # Symbols & pictographs extended-A
+    "\U00002700-\U000027BF"  # Dingbats
+    "\U00002600-\U000026FF"  # Misc symbols
+    "\U00002300-\U000023FF"  # Technical
+    "]+"
+)
+
+
+def _strip_emojis(value: str) -> str:
+    """Remove emoji characters quickly without relying on heavy tokenisation."""
+
+    if not value:
+        return value
+
+    # Fast-path: try regex removal before falling back to the emoji library, which
+    # can be considerably slower on large batches of long texts.
+    if not EMOJI_PATTERN.search(value):
+        return value
+
+    value = EMOJI_PATTERN.sub(" ", value)
+
+    if emoji is None:
+        return value
+
+    try:
+        # Some emojis consist of multiple codepoints; the emoji package handles
+        # those combinations accurately.
+        return emoji.replace_emoji(value, replace=" ")
+    except Exception:
+        # Any unexpected issues fall back to the regex-based removal.
+        return value
 
 
 @dataclass
@@ -90,11 +132,10 @@ def normalise_text(text: str) -> str:
         return ""
 
     cleaned = text
+    cleaned = _strip_emojis(cleaned)
     if unidecode:
         cleaned = unidecode(cleaned)
     cleaned = cleaned.lower()
-    if emoji:
-        cleaned = emoji.replace_emoji(cleaned, replace=" ")
     cleaned = URL_PATTERN.sub(" ", cleaned)
     cleaned = MENTION_PATTERN.sub(" ", cleaned)
     for pattern in LEAK_PATTERNS:
@@ -154,15 +195,15 @@ def load_dataset(base_dir: Path = BASE_DIR) -> pd.DataFrame:
 def build_pipeline(class_weight: dict[int, float]) -> Pipeline:
     """Create a text classification pipeline using TF-IDF + Logistic Regression."""
     vectoriser = TfidfVectorizer(
-        max_features=50000,
+        max_features=20000,
         ngram_range=(1, 2),
         sublinear_tf=True,
-        min_df=2,
+        min_df=3,
     )
     classifier = LogisticRegression(
-        max_iter=1000,
+        max_iter=750,
         class_weight=class_weight,
-        solver="lbfgs",
+        solver="liblinear",
     )
     return Pipeline(
         [
@@ -335,6 +376,10 @@ def cmd_train(args: argparse.Namespace) -> None:
     data = load_dataset(BASE_DIR)
     print(f"Total data setelah pembersihan: {len(data)} sampel.")
 
+    if args.max_samples and len(data) > args.max_samples:
+        data = data.sample(n=args.max_samples, random_state=args.random_state).reset_index(drop=True)
+        print(f"Menggunakan subset {len(data)} sampel untuk training cepat.")
+
     result = train_model(
         data,
         test_size=args.test_size,
@@ -411,6 +456,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--tune", action="store_true", help="Aktifkan grid search sederhana untuk mencari hyperparameter terbaik.")
     train_parser.add_argument("--cv-folds", type=int, default=5, help="Jumlah fold cross-validation saat tuning (default: 5).")
     train_parser.add_argument("--n-jobs", type=int, default=None, help="Jumlah parallel job untuk grid search (default: mengikuti scikit-learn).")
+
+    train_parser.add_argument("--max-samples", type=int, help="Batasi jumlah sampel saat training (berguna untuk pengujian cepat).")
+
+
     train_parser.set_defaults(func=cmd_train)
 
     predict_parser = subparsers.add_parser("predict", help="Gunakan model terlatih untuk prediksi.")
