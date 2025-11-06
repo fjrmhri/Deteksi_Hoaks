@@ -20,7 +20,7 @@ except Exception:
 
 import requests
 paket_wajib = {
-    "torch": "torch==2.1.2",  # mendukung CUDA 11.8 di Colab T4
+    "torch": "torch==2.2.0",  # mendukung CUDA 11.8 di Colab T4 dan Python 3.12
     "transformers": "transformers==4.38.2",
     "datasets": "datasets==2.17.1",
     "accelerate": "accelerate==0.27.2",
@@ -102,11 +102,21 @@ import json
 import math
 import os
 import random
+import subprocess
+import sys
+import time # Import time here
 from pathlib import Path
+
+# Define 'perangkat' here as it's used in this cell
+import torch
+if torch.cuda.is_available():
+    perangkat = torch.device("cuda")
+else:
+    perangkat = torch.device("cpu")
+
 
 import numpy as np
 import pandas as pd
-import torch
 from datasets import Dataset
 from imblearn.over_sampling import RandomOverSampler
 from matplotlib import pyplot as plt
@@ -368,6 +378,8 @@ print(f"Data uji: {len(test_df)} baris")
 print("\n# ==========================")
 print("# 4) Pra-pemrosesan dan Tokenisasi")
 print("# ==========================")
+
+import requests # Import requests here
 
 
 def bersihkan_teks(teks: str) -> str:
@@ -815,7 +827,27 @@ print("\n# ==========================")
 print("# 10) Masukan Pengguna untuk Prediksi")
 print("# ==========================")
 
-teks_uji = input("Masukkan teks berita yang ingin diuji: ")
-hasil = prediksi_hoaks(teks_uji)
-status_hasil = "hoaks" if hasil["label"] == "hoaks" else "bukan hoaks"
-print(f"Hasil prediksi: {status_hasil} dengan keyakinan {hasil['skor']:.4f}")
+print("Masukkan teks berita yang ingin diuji. Ketik 'exit' untuk berhenti.")
+
+while True:
+    try:
+        teks_uji = input("Teks berita: ")
+        if teks_uji.lower() == 'exit':
+            print("Keluar dari mode prediksi.")
+            break
+        if not teks_uji.strip():
+            print("Input kosong. Mohon masukkan teks berita.")
+            continue
+
+        hasil = prediksi_hoaks(teks_uji)
+        status_hasil = "hoaks" if hasil["label"] == "hoaks" else "bukan hoaks"
+        print(f"Hasil prediksi: {status_hasil} dengan keyakinan {hasil['skor']:.4f}")
+        print("-" * 60)
+
+    except EOFError:
+        # Handle interruption (e.g., Ctrl+C)
+        print("\nInterupsi terdeteksi. Keluar dari mode prediksi.")
+        break
+    except Exception as e:
+        print(f"Terjadi kesalahan: {e}")
+        print("Mohon coba lagi.")
