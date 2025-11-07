@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deteksi Hoaks IndoBERT</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <h1>Deteksi Hoaks Real-Time</h1>
+      <p>
+        Masukkan teks berita dalam bahasa Indonesia dan layanan IndoBERT akan
+        mengklasifikasikan secara real-time melalui API FastAPI yang berjalan
+        di Google Colab.
+      </p>
+    </header>
+
+    <main class="container">
+      <section class="settings">
+        <label for="apiUrl">Alamat API (ngrok):</label>
+        <input
+          type="url"
+          id="apiUrl"
+          placeholder="https://contoh-ngrok.ngrok-free.app"
+          autocomplete="url"
+        />
+        <button id="saveApiUrl" class="secondary">Simpan</button>
+        <p class="hint">
+          Pastikan URL diakhiri tanpa slash. Contoh:
+          <code>https://abcd1234.ngrok-free.app</code>
+        </p>
+      </section>
+
+      <section class="form">
+        <label for="newsText">Teks berita</label>
+        <textarea
+          id="newsText"
+          placeholder="Tempel berita yang ingin diperiksa..."
+          rows="8"
+        ></textarea>
+        <button id="submitBtn">Periksa Sekarang</button>
+      </section>
+
+      <section id="statusPanel" class="status hidden"></section>
+
+      <section id="resultPanel" class="result hidden">
+        <h2>Hasil Prediksi</h2>
+        <div id="prediction"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Backend berjalan pada FastAPI + IndoBERT di Google Colab, dibuka ke
+        internet menggunakan <strong>ngrok</strong>.
+      </p>
+    </footer>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
