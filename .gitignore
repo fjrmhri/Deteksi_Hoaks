@@ -2,4 +2,9 @@ __pycache__/
 *.py[cod]
 *.joblib
 models/
+model_terbaik/
+dataset/
+.env
+.notebooks/
+notebooks/.ipynb_checkpoints/
 .DS_Store
