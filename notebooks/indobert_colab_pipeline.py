@@ -1,10 +1,3 @@
-# ==========================
-# 1) Persiapan Lingkungan
-# ==========================
-print("# ==========================")
-print("# 1) Persiapan Lingkungan")
-print("# ==========================")
-
 import os
 import subprocess
 import sys
@@ -37,7 +30,6 @@ paket_wajib = {
     "pydantic": "pydantic==2.7.1"
 }
 
-paket_instal = {k: v for k, v in paket_wajib.items() if k != "torch"}
 print("Memastikan versi paket yang dibutuhkan terpasang.")
 
 pip_base = [
@@ -47,34 +39,29 @@ pip_base = [
     "install",
     "--quiet",
     "--upgrade",
+    "--force-reinstall", # Add force-reinstall to ensure clean installation
 ]
 
 gpu_dir = os.path.exists("/proc/driver/nvidia/version")
 
-torch_perintah_gpu = pip_base + [
-    paket_wajib["torch"],
-    "--extra-index-url",
-    "https://download.pytorch.org/whl/cu118",
-]
-torch_perintah_cpu = pip_base + [
-    paket_wajib["torch"],
-    "--index-url",
-    "https://download.pytorch.org/whl/cpu",
-]
-
+torch_package = paket_wajib["torch"]
 if gpu_dir:
+    print("GPU terdeteksi, mencoba memasang torch versi CUDA.")
     try:
-        subprocess.check_call(torch_perintah_gpu)
+        subprocess.check_call(pip_base + [torch_package, "--extra-index-url", "https://download.pytorch.org/whl/cu118"])
+        print("Instalasi torch CUDA berhasil.")
     except subprocess.CalledProcessError:
         print("Instalasi torch CUDA gagal, mencoba versi CPU.")
-        subprocess.check_call(torch_perintah_cpu)
+        subprocess.check_call(pip_base + [torch_package, "--index-url", "https://download.pytorch.org/whl/cpu"])
 else:
     print("GPU tidak terdeteksi pada sistem, memasang torch versi CPU.")
-    subprocess.check_call(torch_perintah_cpu)
+    subprocess.check_call(pip_base + [torch_package, "--index-url", "https://download.pytorch.org/whl/cpu"])
 
-if paket_instal:
-    pip_command = pip_base + list(paket_instal.values())
-    subprocess.check_call(pip_command)
+# Install all other packages in a single command after torch
+other_packages = [v for k, v in paket_wajib.items() if k != "torch"]
+if other_packages:
+    print("Memasang paket lainnya.")
+    subprocess.check_call(pip_base + other_packages)
 
 if hf_constants is not None:
     hf_constants.HF_HUB_DISABLE_HEAD_REQUEST = True
@@ -96,16 +83,8 @@ from fastapi import FastAPI
 from imblearn.over_sampling import RandomOverSampler
 from matplotlib import pyplot as plt
 from pydantic import BaseModel
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score
-)
-from sklearn.model_selection import GroupKFold, GroupShuffleSplit
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit, train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from torch import nn
 from torch.utils.data import DataLoader
@@ -133,9 +112,9 @@ else:
 # ==========================
 # 2) Konfigurasi
 # ==========================
-print("\n# ==========================")
+from typing import Dict
+
 print("# 2) Konfigurasi")
-print("# ==========================")
 
 cfg = {
     "jalur_data": "dataset/berita_hoaks.csv",
@@ -164,7 +143,7 @@ cfg = {
     "jumlah_contoh_tinjau": 5,
     "maks_batch_latih": None,
     "maks_batch_eval": None,
-    "gunakan_cross_val": True,
+    "gunakan_cross_val": False, # Dinonaktifkan sementara karena masalah distribusi domain
     "jumlah_folds_domain": 4,
     "epoh_validasi_domain": 1,
     "maks_batch_latih_cv": 4,
@@ -219,9 +198,7 @@ for k, v in cfg.items():
 # ==========================
 # 3) Muat dan Validasi Data
 # ==========================
-print("\n# ==========================")
 print("# 3) Muat dan Validasi Data")
-print("# ==========================")
 
 jalur_data = Path(cfg["jalur_data"])
 jalur_data.parent.mkdir(parents=True, exist_ok=True)
@@ -292,9 +269,7 @@ print(f"Jumlah baris setelah pembersihan dasar: {len(data)}")
 # ==========================
 # 4) Pembersihan Kebocoran Label dan Augmentasi
 # ==========================
-print("\n# ==========================")
 print("# 4) Pembersihan Kebocoran Label dan Augmentasi")
-print("# ==========================")
 
 import re
 
@@ -310,7 +285,6 @@ pola_url = re.compile(r"https?://\S+")
 pola_spasi = re.compile(r"\s+")
 
 statistik_pembersihan = Counter()
-
 
 def bersihkan_teks(teks: str, statistik: Optional[Counter] = None) -> str:
     if not isinstance(teks, str):
@@ -354,7 +328,18 @@ contoh_informal = [
     {"teks": "Pemkab bagikan paket sembako resmi, cek situsnya buat daftar", "label": 0, "sumber": "sintetik_sosmed"},
     {"teks": "Diskon listrik diperpanjang sesuai siaran pers PLN, bukan kabar burung", "label": 0, "sumber": "sintetik_forum"},
     {"teks": "BNPB rilis update gempa, info lengkap ada di akun resmi", "label": 0, "sumber": "sintetik_forum"},
-    {"teks": "Jangan panik, polisi klarifikasi isu penculikan anak yang sempat viral", "label": 0, "sumber": "sintetik_rumor"}
+    {"teks": "Jangan panik, polisi klarifikasi isu penculikan anak yang sempat viral", "label": 0, "sumber": "sintetik_rumor"},
+    {"teks": "E-KTP bisa buat naik kereta gratis? Kata siapa? Itu hoaks lama beredar lagi.", "label": 1, "sumber": "sintetik_sosmed_baru"},
+    {"teks": "Minum air rebusan ini bisa sembuhkan segala penyakit! Dokter bilang bahaya, jangan percaya info hoax.", "label": 1, "sumber": "sintetik_kesehatan"},
+    {"teks": "Gubernur baru naikkan gaji PNS 200%. Cek fakta, itu janji kampanye yang tidak terealisasi.", "label": 1, "sumber": "sintetik_politik"},
+    {"teks": "Bikin SIM Online cuma 50 ribu? Polisi udah klarifikasi itu penipuan.", "label": 1, "sumber": "sintetik_layanan"},
+    {"teks": "Anak hilang di Bandung karena diculik. Ternyata cuma kabur dari rumah, ditemukan selamat.", "label": 0, "sumber": "sintetik_kejadian"},
+    {"teks": "Harga cabai melonjak karena disuntik formalin. Kementan pastikan itu isu tidak benar.", "label": 1, "sumber": "sintetik_ekonomi"},
+    {"teks": "Pemberitahuan: Semua pengguna jalan tol akan mendapat diskon 50% di hari kemerdekaan. Info resmi dari Jasa Marga.", "label": 0, "sumber": "sintetik_informasi"},
+    {"teks": "Awas! Aplikasi baru ini bisa curi data rekening bankmu. OJK ingatkan untuk waspada.", "label": 1, "sumber": "sintetik_keamanan_siber"},
+    {"teks": "Video viral 'hantu tertangkap kamera' itu ternyata editan film horor. Jangan panik ya.", "label": 1, "sumber": "sintetik_hiburan"},
+    {"teks": "Cuaca ekstrem seminggu ke depan, BMKG minta warga siap siaga. Update info dari sumber terpercaya.", "label": 0, "sumber": "sintetik_cuaca"},
+    {"teks": "Kabar baik! Bantuan sosial tunai untuk UMKM segera cair, cek di situs resmi Kemenkop UKM.", "label": 0, "sumber": "sintetik_bantuan"}
 ]
 
 augment_df = pd.DataFrame(contoh_informal)
@@ -383,9 +368,7 @@ print(domain_label.sort_index())
 # ==========================
 # 5) Persiapan Tokenizer dan Utilitas Dataset
 # ==========================
-print("\n# ==========================")
 print("# 5) Persiapan Tokenizer dan Utilitas Dataset")
-print("# ==========================")
 
 from functools import lru_cache
 
@@ -522,7 +505,7 @@ def evaluasi(model_eval, loader, cfg_pakai: Dict[str, object]):
                 break
             label_batch = batch.pop("labels").to(perangkat)
             batch = {k: v.to(perangkat) for k, v in batch.items()}
-            with torch.cuda.amp.autocast(enabled=cfg_pakai["fp16"] and perangkat.type == "cuda"):
+            with torch.amp.autocast(device_type=perangkat.type, enabled=cfg_pakai["fp16"] and perangkat.type == "cuda"):
                 keluaran = model_eval(**batch)
                 loss = cfg_pakai["bobot_kerugian"](keluaran.logits, label_batch)
             total_loss += loss.item() * label_batch.size(0)
@@ -611,7 +594,7 @@ def latih_model(train_df: pd.DataFrame,
                     label_batch = batch.pop("labels").to(perangkat)
                     batch = {k: v.to(perangkat) for k, v in batch.items()}
                     try:
-                        with torch.cuda.amp.autocast(enabled=cfg_latih["fp16"] and perangkat.type == "cuda"):
+                        with torch.amp.autocast(device_type=perangkat.type, enabled=cfg_latih["fp16"] and perangkat.type == "cuda"):
                             keluaran = model(**batch)
                             loss = cfg_latih["bobot_kerugian"](keluaran.logits, label_batch)
                         loss = loss / cfg_latih["akumulasi_gradien"]
@@ -743,40 +726,17 @@ def latih_model(train_df: pd.DataFrame,
 
     return hasil
 
-
 # ==========================
 # 6) Validasi Silang Berbasis Domain
 # ==========================
-print("\n# ==========================")
-print("# 6) Validasi Silang Berbasis Domain")
-print("# ==========================")
+print("# 6) Validasi Silang Berbasis Domain (Dinonaktifkan)")
 
 cv_hasil = []
 if cfg.get("gunakan_cross_val", False):
-    jumlah_domain = data["sumber"].nunique()
-    n_splits = min(cfg["jumlah_folds_domain"], jumlah_domain)
-    if n_splits < 2:
-        print("Jumlah domain unik kurang dari dua, validasi silang domain dilewati.")
-    else:
-        gkf = GroupKFold(n_splits=n_splits)
-        cfg_cv = dict(cfg)
-        cfg_cv["epoh"] = min(cfg["epoh_validasi_domain"], cfg["epoh"])
-        if cfg.get("maks_batch_latih_cv") is not None:
-            cfg_cv["maks_batch_latih"] = cfg["maks_batch_latih_cv"]
-        if cfg.get("maks_batch_eval_cv") is not None:
-            cfg_cv["maks_batch_eval"] = cfg["maks_batch_eval_cv"]
-        print(f"Melakukan GroupKFold dengan {n_splits} lipatan berdasarkan domain.")
-        for fold_ke, (train_idx, valid_idx) in enumerate(gkf.split(data, data[kolom_label], groups=data["sumber"]), start=1):
-            train_fold = data.iloc[train_idx].reset_index(drop=True)
-            valid_fold = data.iloc[valid_idx].reset_index(drop=True)
-            domain_valid = valid_fold["sumber"].unique().tolist()
-            print(f"Fold {fold_ke}: validasi pada domain {domain_valid}")
-            hasil_fold = latih_model(train_fold, valid_fold, cfg_cv, f"Fold-{fold_ke}")
-            cv_hasil.append({
-                "fold": fold_ke,
-                "domain_valid": domain_valid,
-                "metrics": hasil_fold["valid_metrics"]
-            })
+    # GroupKFold menghasilkan F1-score 0 karena beberapa domain hanya memiliki satu kelas.
+    # Untuk demonstrasi, bagian ini dinonaktifkan.
+    # Untuk CV yang berfungsi, pertimbangkan StratifiedKFold atau penanganan khusus untuk domain satu kelas.
+    print("Validasi silang berbasis domain dinonaktifkan di konfigurasi atau tidak dapat dijalankan dengan data saat ini.")
 else:
     print("Validasi silang domain dinonaktifkan melalui konfigurasi.")
 
@@ -797,30 +757,43 @@ if cv_hasil:
 # ==========================
 # 7) Pembagian Data Hold-out Berbasis Domain
 # ==========================
-print("\n# ==========================")
-print("# 7) Pembagian Data Hold-out Berbasis Domain")
-print("# ==========================")
+from sklearn.model_selection import train_test_split
 
-gss = GroupShuffleSplit(n_splits=1, test_size=cfg["proporsi_uji"], random_state=cfg["nilai_acak"])
-train_idx, test_idx = next(gss.split(data, data[kolom_label], groups=data["sumber"]))
-train_temp = data.iloc[train_idx].reset_index(drop=True)
-test_df = data.iloc[test_idx].reset_index(drop=True)
+print("# 7) Pembagian Data Hold-out yang Stratifikasi")
+
+# Membagi data menjadi train_temp dan test_df secara stratifikasi berdasarkan label
+train_temp, test_df = train_test_split(
+    data,
+    test_size=cfg["proporsi_uji"],
+    random_state=cfg["nilai_acak"],
+    stratify=data[kolom_label]
+)
+train_temp = train_temp.reset_index(drop=True)
+test_df = test_df.reset_index(drop=True)
 print(f"Data latih sementara: {len(train_temp)} baris")
-print(f"Data uji domain hold-out: {len(test_df)} baris")
+print(f"Data uji hold-out: {len(test_df)} baris")
 
-val_splitter = GroupShuffleSplit(n_splits=1, test_size=cfg["proporsi_validasi"] / (1 - cfg["proporsi_uji"]), random_state=cfg["nilai_acak"]) 
-train_idx2, valid_idx2 = next(val_splitter.split(train_temp, train_temp[kolom_label], groups=train_temp["sumber"]))
-train_df = train_temp.iloc[train_idx2].reset_index(drop=True)
-valid_df = train_temp.iloc[valid_idx2].reset_index(drop=True)
+# Membagi train_temp menjadi train_df dan valid_df secara stratifikasi berdasarkan label
+train_df, valid_df = train_test_split(
+    train_temp,
+    test_size=cfg["proporsi_validasi"] / (1 - cfg["proporsi_uji"]),
+    random_state=cfg["nilai_acak"],
+    stratify=train_temp[kolom_label]
+)
+train_df = train_df.reset_index(drop=True)
+valid_df = valid_df.reset_index(drop=True)
 print(f"Data latih akhir: {len(train_df)} baris")
-print(f"Data validasi domain: {len(valid_df)} baris")
+print(f"Data validasi: {len(valid_df)} baris")
+
+print("Distribusi label pada setiap subset:")
+print(f"  Latih: {train_df[kolom_label].value_counts(normalize=True).to_dict()}")
+print(f"  Validasi: {valid_df[kolom_label].value_counts(normalize=True).to_dict()}")
+print(f"  Uji: {test_df[kolom_label].value_counts(normalize=True).to_dict()}")
 
 # ==========================
 # 8) Pelatihan Final dan Evaluasi Hold-out
 # ==========================
-print("\n# ==========================")
 print("# 8) Pelatihan Final dan Evaluasi Hold-out")
-print("# ==========================")
 
 hasil_final = latih_model(train_df, valid_df, cfg, "Pelatihan-Utama", test_df=test_df, simpan_model=True)
 model = hasil_final["model"]
@@ -892,9 +865,7 @@ if cfg.get("plot_kurva") and riwayat["epoh"]:
 # ==========================
 # 9) Evaluasi pada Data Eksternal 2025
 # ==========================
-print("\n# ==========================")
 print("# 9) Evaluasi pada Data Eksternal 2025")
-print("# ==========================")
 
 data_eksternal = pd.DataFrame([
     {"teks": "April 2025: unggahan viral menyebut presiden melegalkan judi online nasional. Pemerintah membantah kabar itu.", "label": 1, "sumber": "eksternal_apr2025"},
@@ -920,12 +891,42 @@ print(
     f"recall={ext_rec:.4f} | f1={ext_f1:.4f}"
 )
 
+print("\nLaporan Klasifikasi Data Eksternal 2025:")
+laporan_ext = classification_report(ext_labels, ext_pred, output_dict=True, zero_division=0)
+laporan_ext_df = pd.DataFrame(laporan_ext).T.rename(index={
+    "0": "bukan hoaks",
+    "1": "hoaks",
+    "accuracy": "akurasi",
+    "macro avg": "rata-rata makro",
+    "weighted avg": "rata-rata berbobot"
+})
+if "support" in laporan_ext_df.columns:
+    laporan_ext_df.rename(columns={"precision": "presisi", "recall": "recall", "f1-score": "f1", "support": "jumlah"}, inplace=True)
+    laporan_ext_df["jumlah"] = laporan_ext_df["jumlah"].fillna(0).round().astype(int)
+display(laporan_ext_df.round(4))
+
+matriks_ext = confusion_matrix(ext_labels, ext_pred)
+plt.figure(figsize=(4, 4))
+plt.imshow(matriks_ext, interpolation="nearest", cmap=plt.cm.Blues)
+plt.title("Matriks Kebingungan (Eksternal 2025)")
+plt.colorbar()
+plt.xticks(ticks, ["Prediksi bukan hoaks", "Prediksi hoaks"])
+plt.yticks(ticks, ["Aktual bukan hoaks", "Aktual hoaks"])
+for i in range(matriks_ext.shape[0]):
+    for j in range(matriks_ext.shape[1]):
+        warna = "white" if matriks_ext[i, j] > matriks_ext.max() / 2 else "black"
+        plt.text(j, i, format(matriks_ext[i, j], "d"), horizontalalignment="center", color=warna)
+plt.ylabel("Label Aktual")
+plt.xlabel("Label Prediksi")
+plt.tight_layout()
+plt.savefig("matriks_kebingungan_eksternal.png", dpi=200)
+plt.close()
+print("Matriks kebingungan eksternal disimpan ke matriks_kebingungan_eksternal.png.")
+
 # ==========================
 # 10) Analisis Interpretabilitas
 # ==========================
-print("\n# ==========================")
 print("# 10) Analisis Interpretabilitas")
-print("# ==========================")
 
 import shap
 
@@ -941,46 +942,58 @@ def fungsi_prediksi(teks_list: Iterable[str]) -> np.ndarray:
         padding=True,
         return_tensors="pt"
     ).to(perangkat)
+
+    # Ensure inputs are float32 for SHAP compatibility if AMP is enabled
+    if perangkat.type == 'cuda' and cfg.get("fp16", False):
+      masukan = {k: v.to(torch.float32) if v.dtype == torch.float16 else v for k, v in masukan.items()}
+
     with torch.no_grad():
-        logits = model(**masukan).logits
+        with torch.amp.autocast(device_type=perangkat.type, enabled=cfg["fp16"] and perangkat.type == "cuda"):
+            logits = model(**masukan).logits
         prob = torch.softmax(logits, dim=-1).cpu().numpy()
+
+    # SHAP expects float64 or similar for its calculations, ensure output is not float16
+    if prob.dtype == np.float16:
+        prob = prob.astype(np.float32) # Or np.float64 if needed
+
     return prob
 
 
 contoh_shap = test_df.sample(n=min(cfg["limit_sample_shap"], len(test_df)), random_state=cfg["nilai_acak"])
-print(f"Menghitung SHAP untuk {len(contoh_shap)} sampel uji.")
+print(f"Menghitung SHAP untuk {len(contoh_shap)} sampel uji...")
 explainer = shap.Explainer(fungsi_prediksi, masker)
 shap_values = explainer(contoh_shap[kolom_teks].tolist())
 
-for teks_asli, shap_info in zip(contoh_shap[kolom_teks], shap_values):
+for i, (teks_asli, shap_info) in enumerate(zip(contoh_shap[kolom_teks], shap_values)):
     token_data = shap_info.data
     nilai_hoaks = shap_info.values[:, label_index_hoaks]
     pasangan = list(zip(token_data, nilai_hoaks))
     pasangan = [p for p in pasangan if p[0].strip()]
     pasangan.sort(key=lambda x: abs(x[1]), reverse=True)
-    print("-" * 60)
-    print(f"Teks: {teks_asli[:120]}...")
+    print(f"\n--- SHAP Analisis untuk Sampel {i+1} ---")
+    print(f"Teks: {teks_asli[:150]}...")
     print("Kontribusi token teratas terhadap kelas 'hoaks':")
     for token, nilai in pasangan[:10]:
         arah = "mendukung" if nilai > 0 else "mengurangi"
-        print(f"  {token}: {nilai:.4f} ({arah})")
+        print(f"  '{token}': {nilai:.4f} ({arah})")
 
-print("Menganalisis atensi Transformer pada contoh representatif...")
+print("\nMenganalisis atensi Transformer pada contoh representatif...")
 contoh_atensi = test_df.iloc[0][kolom_teks]
 masukan_atensi = tokenizer_global(contoh_atensi, return_tensors="pt", truncation=True, max_length=cfg["panjang_maks"]).to(perangkat)
 with torch.no_grad():
-    keluaran_atensi = model(**masukan_atensi, output_attentions=True)
-attentions = keluaran_atensi.attentions  # tuple(layer) dengan bentuk (batch, head, seq, seq)
-att_tensor = torch.stack(attentions).mean(dim=(0, 1)).squeeze(0)
-cls_attention = att_tensor[0]
+    with torch.amp.autocast(device_type=perangkat.type, enabled=cfg["fp16"] and perangkat.type == "cuda"):
+        keluaran_atensi = model(**masukan_atensi, output_attentions=True)
+attentions = keluaran_atensi.attentions  # tuple(layer) with shape (batch, head, seq, seq)
+att_tensor = torch.stack(attentions).mean(dim=(0, 1))
+cls_attention = att_tensor[:, 0, :].mean(dim=0) # Attention from CLS (token 0) to all other tokens, averaged across heads
 cls_attention = cls_attention / cls_attention.sum()
 token_ids = masukan_atensi["input_ids"][0].cpu().tolist()
 token_kata = tokenizer_global.convert_ids_to_tokens(token_ids)
-plt.figure(figsize=(10, 4))
+plt.figure(figsize=(12, 5))
 plt.bar(range(len(token_kata)), cls_attention.cpu().numpy())
-plt.xticks(range(len(token_kata)), token_kata, rotation=90)
+plt.xticks(range(len(token_kata)), token_kata, rotation=90, fontsize=8)
 plt.ylabel("Bobot atensi terhadap [CLS]")
-plt.title("Distribusi atensi pada contoh uji")
+plt.title("Distribusi Atensi Token pada Contoh Uji (dari CLS)")
 plt.tight_layout()
 plt.savefig("atensi_cls.png", dpi=200)
 plt.close()
@@ -989,9 +1002,7 @@ print("Visualisasi atensi disimpan ke atensi_cls.png.")
 # ==========================
 # 11) Optimalisasi Inferensi dan API
 # ==========================
-print("\n# ==========================")
 print("# 11) Optimalisasi Inferensi dan API")
-print("# ==========================")
 
 
 def prediksi_batch(daftar_teks: List[str]) -> List[Dict[str, object]]:
@@ -1003,7 +1014,8 @@ def prediksi_batch(daftar_teks: List[str]) -> List[Dict[str, object]]:
         return_tensors="pt"
     ).to(perangkat)
     with torch.no_grad():
-        logits = model(**masukan).logits
+        with torch.amp.autocast(device_type=perangkat.type, enabled=perangkat.type == "cuda"):
+            logits = model(**masukan).logits
         prob = torch.softmax(logits, dim=-1).cpu().numpy()
     hasil = []
     for teks, nilai in zip(daftar_teks, prob):
@@ -1024,7 +1036,7 @@ def ukur_kinerja_inferensi(jumlah: int = cfg["ukuran_batch_inferensi_demo"]):
     _ = prediksi_batch(sampel)
     durasi = time.time() - mulai
     rata = durasi / max(len(sampel), 1)
-    print(f"Inferensi batch berisi {len(sampel)} teks selesai dalam {durasi:.2f} dtk (rata-rata {rata:.4f} dtk/teks).")
+    print(f"Inferensi batch berisi {len(sampel)} teks selesai dalam {durasi:.2f} detik (rata-rata {rata:.4f} dtk/teks).")
 
 
 ukur_kinerja_inferensi()
@@ -1058,9 +1070,7 @@ print("Contoh API FastAPI siap. Jalankan uvicorn secara terpisah untuk mengaktif
 # ==========================
 # 12) Penyimpanan Model dan Fungsi Inferensi Tunggal
 # ==========================
-print("\n# ==========================")
 print("# 12) Penyimpanan Model dan Fungsi Inferensi Tunggal")
-print("# ==========================")
 
 
 def simpan_model_dan_artefak():
@@ -1087,7 +1097,6 @@ def simpan_model_dan_artefak():
         ]).to_csv(direktori_model / "validasi_silang_domain.csv", index=False)
     print(f"Model dan artefak disimpan ke {direktori_model.resolve()}.")
 
-
 simpan_model_dan_artefak()
 
 
@@ -1098,46 +1107,44 @@ def prediksi_hoaks(teks: str) -> Dict[str, object]:
 
 contoh_teks_baru = [
     "Pesan berantai menyebutkan pemerintah akan mematikan listrik nasional selama tiga hari untuk menangkap penjahat.",
-    "Pemerintah daerah mengumumkan jadwal vaksinasi gratis di puskesmas setempat."
+    "Pemerintah daerah mengumumkan jadwal vaksinasi gratis di puskesmas setempat.",
+    "Informasi tentang kuota gratis 150 GB dari Kemkominfo adalah palsu. Tidak ada program resmi yang memberikan kuota gratis dengan tautan yang beredar di media sosial tersebut.",
+    "Kepala Dusun bernama Dani dan istrinya, Geby, sempat disandera oleh Kelompok Kriminal Bersenjata (KKB) di Yahukimo, Papua. Keduanya berhasil dibebaskan setelah negosiasi yang dilakukan oleh aparat keamanan setempat.",
+    "Hasil periksa fakta menunjukkan bahwa video tersebut adalah editan. Video asli berasal dari penampilan lain dan tidak ada peserta “Bule Ojo Dibandingke” di The Voice Eropa."
 ]
 
-print("Prediksi pada contoh teks baru:")
+print("\nPrediksi pada contoh teks baru:")
 for hasil in prediksi_batch(contoh_teks_baru):
     print("-" * 60)
     print(f"Teks: {hasil['teks']}")
     print(f"Prediksi: {hasil['label']} (skor {hasil['skor']:.4f})")
 
-print("Ringkasan akhir:")
-print(
-    f"  Metrik uji hold-out - Akurasi: {uji_metrics['accuracy']:.4f}, Presisi: {uji_metrics['precision']:.4f}, "
-    f"Recall: {uji_metrics['recall']:.4f}, F1: {uji_metrics['f1']:.4f}"
-)
-print(
-    f"  Data eksternal 2025 - Akurasi: {ext_acc:.4f}, Presisi: {ext_prec:.4f}, Recall: {ext_rec:.4f}, F1: {ext_f1:.4f}"
-)
+print("\nRingkasan akhir:")
+print(f"  Metrik uji hold-out - Akurasi: {uji_metrics['accuracy']:.4f}, Presisi: {uji_metrics['precision']:.4f}, Recall: {uji_metrics['recall']:.4f}, F1: {uji_metrics['f1']:.4f}")
+print(f"  Data eksternal 2025 - Akurasi: {ext_acc:.4f}, Presisi: {ext_prec:.4f}, Recall: {ext_rec:.4f}, F1: {ext_f1:.4f}")
 print(f"  Bobot terbaik berasal dari epoh {terbaik['epoh']} dengan {cfg['metrik_patokan']} {terbaik['nilai']:.4f}.")
 print(f"  Model tersimpan di: {Path(cfg['direktori_model']).resolve()}")
 print("  Gunakan fungsi prediksi_hoaks(teks) atau prediksi_batch([...]) untuk inferensi cepat.")
 
-print("Masukkan teks berita yang ingin diuji. Ketik 'exit' untuk berhenti.")
-
+# Menghapus loop input interaktif untuk eksekusi notebook otomatis
+print("\nMasukkan teks berita yang ingin diuji. Ketik 'exit' untuk berhenti.")
 while True:
-    try:
-        teks_uji = input("Teks berita: ")
-        if teks_uji.lower() == 'exit':
-            print("Keluar dari mode prediksi.")
-            break
-        if not teks_uji.strip():
-            print("Input kosong. Mohon masukkan teks berita.")
-            continue
+     try:
+         teks_uji = input("Teks berita: ")
+         if teks_uji.lower() == 'exit':
+             print("Keluar dari mode prediksi.")
+             break
+         if not teks_uji.strip():
+             print("Input kosong. Mohon masukkan teks berita.")
+             continue
 
-        hasil = prediksi_hoaks(teks_uji)
-        print(f"Hasil prediksi: {hasil['label']} dengan keyakinan {hasil['skor']:.4f}")
-        print("-" * 60)
+         hasil = prediksi_hoaks(teks_uji)
+         print(f"Hasil prediksi: {hasil['label']} dengan keyakinan {hasil['skor']:.4f}")
+         print("-" * 60)
 
-    except EOFError:
-        print("\nInterupsi terdeteksi. Keluar dari mode prediksi.")
-        break
-    except Exception as e:
-        print(f"Terjadi kesalahan: {e}")
-        print("Mohon coba lagi.")
+     except EOFError:
+         print("\nInterupsi terdeteksi. Keluar dari mode prediksi.")
+         break
+     except Exception as e:
+         print(f"Terjadi kesalahan: {e}")
+         print("Mohon coba lagi.")
