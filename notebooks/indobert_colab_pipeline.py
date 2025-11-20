@@ -295,6 +295,7 @@ Run after training/saving to quickly test inference without leaving the notebook
 
 The server enables permissive CORS to allow requests from hosted frontends (e.g., Vercel).
 
+
 > ⚠️ Jika frontend kamu berjalan di `https://` (seperti Vercel), browser akan menolak
 > permintaan ke backend `http://` biasa (mixed content). Pastikan backend juga
 > tersedia lewat `https` (mis. reverse proxy/Cloudflare Tunnel) atau uji dari
@@ -304,6 +305,12 @@ The server enables permissive CORS to allow requests from hosted frontends (e.g.
 # %%
 import socket
 from typing import Any
+
+
+import requests
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 import requests
 from fastapi import FastAPI, HTTPException
