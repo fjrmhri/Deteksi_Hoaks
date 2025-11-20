@@ -292,6 +292,8 @@ def predict_texts(texts: List[str], model_path: Path = cfg.save_dir) -> List[Dic
 ## FastAPI mini example (in-notebook)
 
 Run after training/saving to quickly test inference without leaving the notebook.
+
+The server enables permissive CORS to allow requests from hosted frontends (e.g., Vercel).
 """
 
 # %%
@@ -300,9 +302,17 @@ from typing import Any
 
 import requests
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 app = FastAPI(title="IndoBERT Hoax Detection")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 model_for_api = AutoModelForSequenceClassification.from_pretrained(cfg.save_dir).to(device)
 tokenizer_for_api = AutoTokenizer.from_pretrained(cfg.save_dir)
 label_map = {int(k): v for k, v in model_for_api.config.id2label.items()} if model_for_api.config.id2label else {0: "not_hoax", 1: "hoax"}
