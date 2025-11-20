@@ -313,6 +313,17 @@ import socket
 from typing import Any
 
 import requests
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+
+import requests
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -367,6 +378,7 @@ def predict_endpoint(payload: PredictPayload) -> Any:
         "score": round(score.item(), 4),
     }
 
+
 def resolve_public_base_url(port: int = 8000, https_env_var: str = "PUBLIC_HTTPS_BASE_URL") -> str:
     """Return a base URL that can be used by an already-hosted website.
 
@@ -378,6 +390,15 @@ def resolve_public_base_url(port: int = 8000, https_env_var: str = "PUBLIC_HTTPS
     https_override = os.getenv(https_env_var)
     if https_override:
         return https_override.rstrip("/")
+
+def resolve_public_base_url(port: int = 8000) -> str:
+    """Return a base URL that can be used by an already-hosted website.
+
+    On most hosted environments (VPS/cloud/Colab with port forwarding) the external
+    IP can be retrieved via https://ifconfig.me. If the request fails, fall back to
+    the machine hostname. The result is meant to be plugged into the frontend as
+    `http://<ip>:<port>`.
+    """
 
     try:
         external_ip = requests.get("https://ifconfig.me", timeout=5).text.strip()
