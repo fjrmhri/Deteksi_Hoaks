@@ -11,11 +11,11 @@ class Settings(BaseSettings):
     """Runtime configuration loaded from environment variables."""
 
     model_name_or_path: str = Field(
-        "model_terbaik",
+        "models/indobert_hoax",
         description=(
             "Path or Hugging Face identifier for the fine-tuned IndoBERT model. "
-            "Override with the MODEL_NAME_OR_PATH environment variable when the "
-            "model is stored elsewhere."
+            "Export the model from the Colab notebook to this folder (default) "
+            "or override via MODEL_NAME_OR_PATH."
         ),
     )
     device: Literal["auto", "cpu", "cuda"] = Field(

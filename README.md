@@ -1,117 +1,86 @@
-# Hoax Detection Website (IndoBERT + FastAPI)
+# Deteksi Hoaks (IndoBERT + FastAPI + Frontend)
 
-Repositori ini disederhanakan untuk fokus pada pengembangan website deteksi
-hoaks yang memakai model IndoBERT melalui layanan **FastAPI** dan alur kerja
-Google Colab. Semua artefak yang tidak terkait langsung dengan aplikasi web
-(datasets mentah, skrip eksperimen lama, dan cache Python) telah dipindahkan
-atau dihapus agar struktur proyek tetap bersih dan mudah dipahami.
+Sistem ini mendeteksi berita hoaks berbahasa Indonesia menggunakan model IndoBERT
+yang dilatih di Google Colab, disajikan melalui FastAPI, dan diakses lewat
+frontend web ringan.
 
-## Struktur Proyek
+## Arsitektur singkat
 
-```
-backend/
-  app/                # Kode layanan FastAPI yang mengekspor IndoBERT
-    __init__.py
-    config.py
-    inference.py
-    main.py
-    text_utils.py
-  requirements.txt    # Dependensi Python untuk backend
-frontend/
-  index.html          # Halaman web utama (statik)
-  styles.css          # Styling antarmuka
-  app.js              # Logika interaksi dengan API FastAPI
-notebooks/
-  indobert_colab_pipeline.py  # Skrip utilitas untuk dieksekusi di Google Colab
-README.md
-.gitignore
+- **notebooks/**: `indobert_colab_pipeline.py` berisi pipeline Colab untuk
+  instalasi dependensi, pemuatan dataset `dataset/Cleaned`, pelatihan, evaluasi,
+  serta penyimpanan model/tokenizer ke `models/indobert_hoax/`.
+- **backend/**: Layanan FastAPI yang memuat model hasil pelatihan tanpa perlu
+  retrain dan mengekspor endpoint prediksi.
+- **frontend/**: Halaman web statis sederhana untuk mengirim teks ke backend dan
+  menampilkan hasil prediksi beserta skor.
+
+## Jalur penggunaan end-to-end
+
+### 1) Kloning repositori
+```bash
+git clone https://github.com/fjrmhri/Deteksi_Hoaks.git
+cd Deteksi_Hoaks
 ```
 
-## Backend FastAPI
+### 2) Latih model di Google Colab
+1. Buka `notebooks/indobert_colab_pipeline.py` di Colab (GPU T4).
+2. Jalankan sel instalasi dependensi (pinned untuk Colab).
+3. Pastikan folder `dataset/Cleaned` ada di Colab dan berisi file Excel dengan
+   kolom `hoax` serta kolom teks (mis. `Narasi`, `teks`, dll.).
+4. Jalankan sel pipeline untuk: memuat data, split train/validasi, balancing
+   sederhana, fine-tuning IndoBERT, evaluasi, dan penyimpanan model.
+5. Hasil model/tokenizer akan tersimpan ke `models/indobert_hoax/`.
 
-### Menjalankan Secara Lokal
-
-1. Buat dan aktifkan virtual environment Python (opsional namun disarankan).
+### 3) Menjalankan backend (FastAPI)
+1. (Opsional) buat virtual environment Python.
 2. Instal dependensi backend:
-
    ```bash
    pip install -r backend/requirements.txt
    ```
-
-3. Pastikan folder model hasil fine-tuning IndoBERT tersedia (contoh:
-   `model_terbaik/` berisi `config.json`, `pytorch_model.bin`, `tokenizer.json`,
-   dan artefak tokenizer lainnya).
-4. Jalankan layanan FastAPI menggunakan Uvicorn:
-
+3. Pastikan folder `models/indobert_hoax/` dari Colab tersedia di root repo.
+   Jika model berada di lokasi lain, set variabel lingkungan:
    ```bash
-   uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+   export MODEL_NAME_OR_PATH=/path/ke/model
    ```
-
+4. Jalankan server:
+   ```bash
+   uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+   ```
 5. Endpoint utama:
    - `GET /status` untuk health-check.
-   - `POST /prediksi` dengan payload `{ "teks": "..." }` untuk memperoleh
-     label `hoaks` atau `bukan hoaks` beserta skor probabilitas.
+   - `POST /predict-hoax` (alias `/prediksi` atau `/predict`) dengan payload
+     `{ "teks": "isi berita" }` → response `{ label, skor }`.
 
-Konfigurasi runtime (lokasi model, perangkat, panjang maksimum token) dapat
-pengguna atur melalui variabel lingkungan: `MODEL_NAME_OR_PATH`, `DEVICE`, dan
-`MAX_LENGTH`. File `.env` (jika ada) juga akan dibaca secara otomatis oleh
-`backend/app/config.py`.
+### 4) Menjalankan frontend
+1. Buka folder `frontend/` dengan Live Server (VS Code) atau host statik lain.
+2. Isi URL backend (mis. `http://localhost:8000`).
+3. Tempel teks berita dan klik **Periksa sekarang** → hasil dan skor tampil di
+   panel hasil.
 
-### Menjalankan di Google Colab
+### 5) Alur ringkas model → API → frontend
+1. Jalankan notebook → simpan model/tokenizer ke `models/indobert_hoax/`.
+2. Backend memuat model itu saat start-up (tidak perlu retrain).
+3. Frontend memanggil `POST /predict-hoax` dan menampilkan label + skor.
 
-1. Unggah repositori ini dan folder model IndoBERT ke sesi Colab.
-2. Instal dependensi backend:
+## Contoh permintaan API
+```bash
+curl -X POST http://localhost:8000/predict-hoax \ 
+  -H "Content-Type: application/json" \ 
+  -d '{"teks": "Kabar vaksin bikin tubuh jadi magnet"}'
+```
 
-   ```python
-   !pip install -r backend/requirements.txt
-   !pip install torch --extra-index-url https://download.pytorch.org/whl/cu118
-   !pip install transformers uvicorn[standard] pyngrok nest_asyncio
-   ```
+Respons contoh:
+```json
+{
+  "hasil": [
+    {"teks": "Kabar vaksin bikin tubuh jadi magnet", "label": "hoax", "skor": 0.98}
+  ]
+}
+```
 
-3. Set variabel lingkungan bila model tidak berada di `./model_terbaik`:
-
-   ```python
-   import os
-   os.environ["MODEL_NAME_OR_PATH"] = "/content/drive/MyDrive/model_anda"
-   ```
-
-4. Buka tunnel ngrok dan jalankan Uvicorn:
-
-   ```python
-   import nest_asyncio
-   from pyngrok import ngrok
-   import uvicorn
-
-   public_url = ngrok.connect(8000, bind_tls=True).public_url
-   print("Public URL:", public_url)
-
-   nest_asyncio.apply()
-   uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000)
-   ```
-
-URL ngrok inilah yang dipakai frontend untuk melakukan prediksi secara real-time
-melalui endpoint `/prediksi`.
-
-## Frontend Statis
-
-`frontend/` berisi aset HTML, CSS, dan JavaScript sederhana. Jalankan halaman
-tersebut menggunakan fitur *Live Server* di VS Code atau host statik lainnya,
-kemudian masukkan URL ngrok (atau URL backend lokal) ke kolom "Alamat API".
-Klik **Periksa Sekarang** untuk mengirim teks berita dan menerima hasil
-klasifikasi.
-
-## Pipeline di Google Colab
-
-Skrip `notebooks/indobert_colab_pipeline.py` adalah versi pythonic dari notebook
-Colab yang memuat pipeline lengkap: persiapan dependensi, pemuatan dataset,
-augmentasi, fine-tuning IndoBERT, evaluasi, penyimpanan model, hingga contoh API
-FastAPI in-notebook. Dataset tidak disertakan dalam repositori — unggah dataset
-sendiri ke Colab (misalnya ke `/content/dataset/`) sebelum mengeksekusi pipeline.
-
-## Catatan Tambahan
-
-- Folder atau file keluaran seperti `model_terbaik/`, `.env`, dan dataset lokal
-  sudah masuk ke `.gitignore` agar tidak ikut terlacak.
-- Struktur baru ini memisahkan backend, frontend, dan utilitas Colab sehingga
-  workflow deployment menjadi lebih jelas dan terfokus pada website deteksi
-  hoaks.
+## Catatan
+- Path dataset wajib `dataset/Cleaned` (tidak diubah). Pastikan file Excel ada di
+  sana sebelum menjalankan notebook.
+- Konfigurasi backend dapat diatur lewat variabel lingkungan: `MODEL_NAME_OR_PATH`,
+  `DEVICE`, `MAX_LENGTH`.
+- UI sengaja dibuat minimal agar mudah dipakai dan diintegrasikan.

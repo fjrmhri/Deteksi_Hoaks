@@ -4,72 +4,51 @@ const submitBtn = document.getElementById("submitBtn");
 const newsText = document.getElementById("newsText");
 const statusPanel = document.getElementById("statusPanel");
 const resultPanel = document.getElementById("resultPanel");
-const predictionWrapper = document.getElementById("prediction");
+const resultBadge = document.getElementById("resultBadge");
+const resultText = document.getElementById("resultText");
+const resultScore = document.getElementById("resultScore");
 
 const STORAGE_KEY = "deteksi-hoaks-api-url";
 
-function getApiBaseUrl() {
-  return localStorage.getItem(STORAGE_KEY) || "";
-}
+const getApiBaseUrl = () => localStorage.getItem(STORAGE_KEY) || "http://localhost:8000";
+const setApiBaseUrl = (url) => localStorage.setItem(STORAGE_KEY, url);
 
-function setApiBaseUrl(url) {
-  if (url) {
-    localStorage.setItem(STORAGE_KEY, url);
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function toggleStatus(message, type = "info") {
+const setStatus = (message, type = "info") => {
   statusPanel.textContent = message;
-  statusPanel.classList.remove("hidden", "error", "visible");
-  if (type === "error") {
-    statusPanel.classList.add("error");
-  }
-  statusPanel.classList.add("visible");
-}
+  statusPanel.classList.remove("hidden", "error", "success");
+  if (type === "error") statusPanel.classList.add("error");
+  if (type === "success") statusPanel.classList.add("success");
+};
 
-function clearStatus() {
+const clearStatus = () => {
+  statusPanel.textContent = "";
   statusPanel.classList.add("hidden");
-  statusPanel.classList.remove("visible", "error");
-}
+  statusPanel.classList.remove("error", "success");
+};
 
-function renderPrediction(result) {
-  const isHoax = result.label.toLowerCase() === "hoaks";
-  const emoji = isHoax ? "🔴" : "🟢";
-  const label = isHoax ? "Hoaks" : "Bukan Hoaks";
-  const card = document.createElement("div");
-  card.className = `result-card ${isHoax ? "hoax" : "valid"}`;
-  card.innerHTML = `
-    <div class="label">${emoji} ${label}</div>
-    <div class="score">Skor keyakinan: ${(result.skor * 100).toFixed(2)}%</div>
-    <p class="text">${result.teks}</p>
-  `;
-  predictionWrapper.innerHTML = "";
-  predictionWrapper.appendChild(card);
+const renderResult = (item) => {
+  const isHoax = item.label.toLowerCase().includes("hoax");
+  resultBadge.textContent = isHoax ? "Hoaks" : "Bukan hoaks";
+  resultBadge.style.background = isHoax ? "#fee2e2" : "#dcfce7";
+  resultBadge.style.color = isHoax ? "#991b1b" : "#166534";
+  resultText.textContent = item.teks;
+  resultScore.textContent = `Confidence: ${(item.skor * 100).toFixed(2)}%`;
   resultPanel.classList.remove("hidden");
-  resultPanel.classList.add("visible");
-}
+};
 
 async function callApi(text) {
-  const baseUrl = getApiBaseUrl();
-  if (!baseUrl) {
-    throw new Error("Silakan isi alamat API ngrok terlebih dahulu.");
-  }
-
-  const endpoint = `${baseUrl.replace(/\/$/, "")}/prediksi`;
+  const baseUrl = getApiBaseUrl().replace(/\/$/, "");
+  const endpoint = `${baseUrl}/predict-hoax`;
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ teks: text }),
   });
 
   if (!response.ok) {
-    const errorPayload = await response.json().catch(() => ({}));
-    const detail = errorPayload.detail || response.statusText;
-    throw new Error(`Permintaan gagal (${response.status}): ${detail}`);
+    const detail = await response.json().catch(() => ({}));
+    const message = detail.detail || response.statusText;
+    throw new Error(`API error (${response.status}): ${message}`);
   }
 
   return response.json();
@@ -78,44 +57,39 @@ async function callApi(text) {
 async function handleSubmit() {
   clearStatus();
   resultPanel.classList.add("hidden");
-  resultPanel.classList.remove("visible");
-
   const text = newsText.value.trim();
   if (!text) {
-    toggleStatus("Masukkan teks berita terlebih dahulu.", "error");
+    setStatus("Masukkan teks berita terlebih dahulu.", "error");
     return;
   }
 
-  toggleStatus("Menghubungi API FastAPI di Colab…");
+  setStatus("Memproses di backend...", "info");
   submitBtn.disabled = true;
+  saveApiBtn.disabled = true;
 
   try {
     const payload = await callApi(text);
     if (!payload.hasil || !payload.hasil.length) {
-      throw new Error("Respons API tidak sesuai harapan.");
+      throw new Error("Respons API tidak sesuai.");
     }
-    renderPrediction(payload.hasil[0]);
-    clearStatus();
-  } catch (error) {
-    toggleStatus(error.message, "error");
+    renderResult(payload.hasil[0]);
+    setStatus("Berhasil memuat prediksi.", "success");
+  } catch (err) {
+    setStatus(err.message, "error");
   } finally {
     submitBtn.disabled = false;
+    saveApiBtn.disabled = false;
   }
 }
 
 saveApiBtn.addEventListener("click", () => {
-  const url = apiUrlInput.value.trim();
+  const url = apiUrlInput.value.trim() || "http://localhost:8000";
   setApiBaseUrl(url);
-  if (url) {
-    toggleStatus("Alamat API tersimpan. Siap digunakan!");
-  } else {
-    toggleStatus("Alamat API dihapus. Masukkan URL baru sebelum memeriksa.");
-  }
+  setStatus("URL backend tersimpan.", "success");
 });
 
 submitBtn.addEventListener("click", handleSubmit);
 
+// Initialise form with stored URL
 apiUrlInput.value = getApiBaseUrl();
-if (apiUrlInput.value) {
-  toggleStatus("Alamat API siap digunakan. Klik \"Periksa Sekarang\".");
-}
+setStatus("Siap menggunakan backend: " + apiUrlInput.value, "success");

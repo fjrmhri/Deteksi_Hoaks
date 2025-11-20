@@ -14,9 +14,9 @@ app = FastAPI(
     title="Deteksi Hoaks Indonesia",
     description=(
         "API FastAPI untuk mendeteksi berita hoaks menggunakan model IndoBERT "
-        "yang dilatih khusus untuk klasifikasi hoaks."
+        "yang dilatih di notebook `notebooks/indobert_colab_pipeline.py`."
     ),
-    version="1.0.0",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -34,7 +34,7 @@ class PredictionRequest(BaseModel):
 
 class PredictionItem(BaseModel):
     teks: str = Field(..., description="Teks asli yang diprediksi.")
-    label: str = Field(..., description='Label prediksi: "hoaks" atau "bukan hoaks".')
+    label: str = Field(..., description='Label prediksi: "hoax" atau "not_hoax".')
     skor: float = Field(..., ge=0.0, le=1.0, description="Skor probabilitas untuk label terpilih.")
 
 
@@ -55,7 +55,9 @@ def status() -> Dict[str, Any]:
     }
 
 
+@app.post("/predict-hoax", response_model=PredictionResponse)
 @app.post("/prediksi", response_model=PredictionResponse)
+@app.post("/predict", response_model=PredictionResponse)
 def prediksi(payload: PredictionRequest) -> PredictionResponse:
     """Return hoax predictions for the supplied text."""
 
@@ -67,3 +69,10 @@ def prediksi(payload: PredictionRequest) -> PredictionResponse:
     label, score = detector.predict(teks)
     item = PredictionItem(teks=teks, label=label, skor=round(score, 4))
     return PredictionResponse(hasil=[item])
+
+
+@app.get("/")
+def root() -> Dict[str, str]:
+    """Friendly landing message for the API."""
+
+    return {"message": "Gunakan POST /predict-hoax dengan payload {'teks': '...'}"}

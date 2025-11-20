@@ -8,53 +8,44 @@
   </head>
   <body>
     <header class="hero">
-      <h1>Deteksi Hoaks Real-Time</h1>
-      <p>
-        Masukkan teks berita dalam bahasa Indonesia dan layanan IndoBERT akan
-        mengklasifikasikan secara real-time melalui API FastAPI yang berjalan
-        di Google Colab.
-      </p>
+      <div class="hero__text">
+        <h1>Deteksi Hoaks</h1>
+        <p>Masukkan teks berita dan dapatkan prediksi IndoBERT melalui API FastAPI.</p>
+      </div>
+      <div class="hero__pill">IndoBERT · FastAPI · Colab</div>
     </header>
 
     <main class="container">
-      <section class="settings">
-        <label for="apiUrl">Alamat API (ngrok):</label>
-        <input
-          type="url"
-          id="apiUrl"
-          placeholder="https://contoh-ngrok.ngrok-free.app"
-          autocomplete="url"
-        />
-        <button id="saveApiUrl" class="secondary">Simpan</button>
-        <p class="hint">
-          Pastikan URL diakhiri tanpa slash. Contoh:
-          <code>https://abcd1234.ngrok-free.app</code>
-        </p>
+      <section class="card">
+        <h2>Konfigurasi Backend</h2>
+        <p class="hint">Isi alamat API FastAPI (contoh: http://localhost:8000).</p>
+        <div class="input-row">
+          <input type="url" id="apiUrl" placeholder="http://localhost:8000" />
+          <button id="saveApiUrl" class="secondary">Simpan URL</button>
+        </div>
       </section>
 
-      <section class="form">
+      <section class="card">
+        <h2>Periksa Berita</h2>
         <label for="newsText">Teks berita</label>
-        <textarea
-          id="newsText"
-          placeholder="Tempel berita yang ingin diperiksa..."
-          rows="8"
-        ></textarea>
-        <button id="submitBtn">Periksa Sekarang</button>
+        <textarea id="newsText" rows="8" placeholder="Tempel berita yang ingin diperiksa..."></textarea>
+        <button id="submitBtn">Periksa sekarang</button>
       </section>
 
-      <section id="statusPanel" class="status hidden"></section>
+      <section id="statusPanel" class="status card hidden"></section>
 
-      <section id="resultPanel" class="result hidden">
-        <h2>Hasil Prediksi</h2>
-        <div id="prediction"></div>
+      <section id="resultPanel" class="card hidden">
+        <div class="card__header">
+          <h2>Hasil Prediksi</h2>
+          <span id="resultBadge" class="badge">Menunggu...</span>
+        </div>
+        <p id="resultText" class="result__text"></p>
+        <p id="resultScore" class="result__score"></p>
       </section>
     </main>
 
     <footer>
-      <p>
-        Backend berjalan pada FastAPI + IndoBERT di Google Colab, dibuka ke
-        internet menggunakan <strong>ngrok</strong>.
-      </p>
+      <p>Model dilatih di <strong>notebooks/indobert_colab_pipeline.py</strong> dan disajikan via FastAPI.</p>
     </footer>
 
     <script src="app.js" type="module"></script>
