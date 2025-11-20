@@ -39,19 +39,30 @@ const renderResult = (item) => {
 async function callApi(text) {
   const baseUrl = getApiBaseUrl().replace(/\/$/, "");
   const endpoint = `${baseUrl}/predict-hoax`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ teks: text }),
-  });
 
-  if (!response.ok) {
-    const detail = await response.json().catch(() => ({}));
-    const message = detail.detail || response.statusText;
-    throw new Error(`API error (${response.status}): ${message}`);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      const message = detail.detail || response.statusText;
+      throw new Error(`API error (${response.status}): ${message}`);
+    }
+
+    return response.json();
+  } catch (err) {
+    // Common cause: calling http backend from https frontend (blocked as mixed content)
+    if (err instanceof TypeError) {
+      throw new Error(
+        "Gagal terhubung ke backend. Pastikan URL dapat diakses dan tidak diblok mixed content (https ke http)."
+      );
+    }
+    throw err;
   }
-
-  return response.json();
 }
 
 async function handleSubmit() {
@@ -69,10 +80,14 @@ async function handleSubmit() {
 
   try {
     const payload = await callApi(text);
-    if (!payload.hasil || !payload.hasil.length) {
+    if (!payload.label || payload.score === undefined) {
       throw new Error("Respons API tidak sesuai.");
     }
-    renderResult(payload.hasil[0]);
+    renderResult({
+      label: payload.label,
+      skor: payload.score,
+      teks: text,
+    });
     setStatus("Berhasil memuat prediksi.", "success");
   } catch (err) {
     setStatus(err.message, "error");
