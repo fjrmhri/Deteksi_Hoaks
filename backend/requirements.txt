@@ -10,3 +10,4 @@ uvicorn[standard]==0.29.0
 pydantic==2.7.1
 transformers==4.44.2
 torch==2.2.0
+accelerate==0.34.2
