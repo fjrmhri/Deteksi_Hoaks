@@ -18,10 +18,11 @@ import sys
 import subprocess
 
 REQUIRED_PACKAGES = [
+   "numpy==1.26.4",
     "torch==2.2.2",  # Works well with CUDA 11.8 on Colab T4
     "transformers==4.38.2",
     "datasets==2.18.0",
-    "accelerate==0.28.0",
+    "accelerate==0.34.2",
     "pandas==2.2.2",
     "scikit-learn==1.4.2",
     "fastapi==0.110.2",
