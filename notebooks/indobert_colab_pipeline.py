@@ -295,6 +295,7 @@ Run after training/saving to quickly test inference without leaving the notebook
 
 The server enables permissive CORS to allow requests from hosted frontends (e.g., Vercel).
 
+
 > ⚠️ Jika frontend kamu berjalan di `https://` (seperti Vercel), browser akan menolak
 > permintaan ke backend `http://` biasa (mixed content). Pastikan backend juga
 > tersedia lewat `https` (mis. reverse proxy/Cloudflare Tunnel) atau uji dari
@@ -306,11 +307,20 @@ The server enables permissive CORS to allow requests from hosted frontends (e.g.
 >    - `cloudflared tunnel --url http://localhost:8000`
 >    - atau `ngrok http 8000`
 > 3. Salin URL `https://...` dari tunnel, set ke `PUBLIC_HTTPS_BASE_URL`, lalu pakai di frontend.
+
 """
 
 # %%
 import socket
 from typing import Any
+
+
+
+import requests
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
 
 import requests
 from fastapi import FastAPI, HTTPException
@@ -367,6 +377,7 @@ def predict_endpoint(payload: PredictPayload) -> Any:
         "score": round(score.item(), 4),
     }
 
+
 def resolve_public_base_url(port: int = 8000, https_env_var: str = "PUBLIC_HTTPS_BASE_URL") -> str:
     """Return a base URL that can be used by an already-hosted website.
 
@@ -378,6 +389,17 @@ def resolve_public_base_url(port: int = 8000, https_env_var: str = "PUBLIC_HTTPS
     https_override = os.getenv(https_env_var)
     if https_override:
         return https_override.rstrip("/")
+
+
+def resolve_public_base_url(port: int = 8000) -> str:
+    """Return a base URL that can be used by an already-hosted website.
+
+    On most hosted environments (VPS/cloud/Colab with port forwarding) the external
+    IP can be retrieved via https://ifconfig.me. If the request fails, fall back to
+    the machine hostname. The result is meant to be plugged into the frontend as
+    `http://<ip>:<port>`.
+    """
+
 
     try:
         external_ip = requests.get("https://ifconfig.me", timeout=5).text.strip()
