@@ -292,14 +292,27 @@ def predict_texts(texts: List[str], model_path: Path = cfg.save_dir) -> List[Dic
 ## FastAPI mini example (in-notebook)
 
 Run after training/saving to quickly test inference without leaving the notebook.
+
+The server enables permissive CORS to allow requests from hosted frontends (e.g., Vercel).
 """
 
 # %%
-from fastapi import FastAPI
-from pydantic import BaseModel
+import socket
 from typing import Any
 
+import requests
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
 app = FastAPI(title="IndoBERT Hoax Detection")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 model_for_api = AutoModelForSequenceClassification.from_pretrained(cfg.save_dir).to(device)
 tokenizer_for_api = AutoTokenizer.from_pretrained(cfg.save_dir)
 label_map = {int(k): v for k, v in model_for_api.config.id2label.items()} if model_for_api.config.id2label else {0: "not_hoax", 1: "hoax"}
@@ -332,10 +345,28 @@ def predict_endpoint(payload: PredictPayload) -> Any:
         "score": round(score.item(), 4),
     }
 
-# To run inside Colab, uncomment:
+def resolve_public_base_url(port: int = 8000) -> str:
+    """Return a base URL that can be used by an already-hosted website.
+
+    On most hosted environments (VPS/cloud/Colab with port forwarding) the external
+    IP can be retrieved via https://ifconfig.me. If the request fails, fall back to
+    the machine hostname. The result is meant to be plugged into the frontend as
+    `http://<ip>:<port>`.
+    """
+
+    try:
+        external_ip = requests.get("https://ifconfig.me", timeout=5).text.strip()
+    except Exception:
+        external_ip = socket.gethostbyname(socket.gethostname())
+    return f"http://{external_ip}:{port}"
+
+
+# To run inside Colab/hosted notebook and print a public-ish URL, uncomment:
 # import nest_asyncio, uvicorn
 # nest_asyncio.apply()
-# uvicorn.run(app, host="0.0.0.0", port=8000)
+# port = 8000
+# print("Base URL for frontend:", resolve_public_base_url(port))
+# uvicorn.run(app, host="0.0.0.0", port=port)
 
 # For a quick smoke test without starting a server:
 if __name__ == "__main__":
