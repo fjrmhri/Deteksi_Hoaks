@@ -18,7 +18,11 @@
     <main class="container">
       <section class="card">
         <h2>Konfigurasi Backend</h2>
-        <p class="hint">Isi alamat API FastAPI (contoh: http://localhost:8000).</p>
+        <p class="hint">
+          Isi alamat API FastAPI (contoh: http://localhost:8000). Jika frontend di-host HTTPS (mis. Vercel), gunakan URL HTTPS
+          dari tunneling atau isikan jalur proxy bawaan <code>/api/predict-hoax</code> lalu set env <code>BACKEND_BASE_URL</code>
+          di Vercel ke alamat backend HTTP Anda.
+        </p>
         <div class="input-row">
           <input type="url" id="apiUrl" placeholder="http://localhost:8000" />
           <button id="saveApiUrl" class="secondary">Simpan URL</button>

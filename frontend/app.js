@@ -36,22 +36,59 @@ const renderResult = (item) => {
   resultPanel.classList.remove("hidden");
 };
 
-async function callApi(text) {
-  const baseUrl = getApiBaseUrl().replace(/\/$/, "");
-  const endpoint = `${baseUrl}/predict-hoax`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ teks: text }),
-  });
+const validateApiUrl = (rawUrl) => {
+  try {
+    const pageIsHttps = window.location.protocol === "https:";
 
-  if (!response.ok) {
-    const detail = await response.json().catch(() => ({}));
-    const message = detail.detail || response.statusText;
-    throw new Error(`API error (${response.status}): ${message}`);
+    // Allow relative proxy paths (e.g., /api/predict-hoax) so Vercel Functions
+    // can forward to an HTTP backend without mixed-content issues.
+    if (rawUrl.startsWith("/")) {
+      return `${window.location.origin}${rawUrl.replace(/\/$/, "")}`;
+    }
+
+    const url = new URL(rawUrl);
+    if (!url.protocol.startsWith("http")) {
+      throw new Error("Gunakan protokol http atau https.");
+    }
+    const isLocalhost = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    if (pageIsHttps && url.protocol === "http:" && !isLocalhost) {
+      throw new Error(
+        "Frontend berjalan di https sehingga backend http diblokir (mixed content). Pakai URL https dari tunneling (mis. Cloudflare/Ngrok) atau panggil proxy /api/predict-hoax."
+      );
+    }
+    return url.toString().replace(/\/$/, "");
+  } catch (err) {
+    throw new Error(err.message || "URL backend tidak valid.");
   }
+};
 
-  return response.json();
+async function callApi(text) {
+  const baseUrl = validateApiUrl(getApiBaseUrl());
+  const endpoint = `${baseUrl}/predict-hoax`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      const message = detail.detail || response.statusText;
+      throw new Error(`API error (${response.status}): ${message}`);
+    }
+
+    return response.json();
+  } catch (err) {
+    // Common cause: calling http backend from https frontend (blocked as mixed content)
+    if (err instanceof TypeError) {
+      throw new Error(
+        "Gagal terhubung ke backend. Pastikan URL dapat diakses dan tidak diblok mixed content (https ke http)."
+      );
+    }
+    throw err;
+  }
 }
 
 async function handleSubmit() {
@@ -69,10 +106,14 @@ async function handleSubmit() {
 
   try {
     const payload = await callApi(text);
-    if (!payload.hasil || !payload.hasil.length) {
+    if (!payload.label || payload.score === undefined) {
       throw new Error("Respons API tidak sesuai.");
     }
-    renderResult(payload.hasil[0]);
+    renderResult({
+      label: payload.label,
+      skor: payload.score,
+      teks: text,
+    });
     setStatus("Berhasil memuat prediksi.", "success");
   } catch (err) {
     setStatus(err.message, "error");
@@ -83,13 +124,22 @@ async function handleSubmit() {
 }
 
 saveApiBtn.addEventListener("click", () => {
-  const url = apiUrlInput.value.trim() || "http://localhost:8000";
-  setApiBaseUrl(url);
-  setStatus("URL backend tersimpan.", "success");
+  const rawUrl = apiUrlInput.value.trim() || "http://localhost:8000";
+  try {
+    const cleanUrl = validateApiUrl(rawUrl);
+    setApiBaseUrl(cleanUrl);
+    setStatus("URL backend tersimpan.", "success");
+  } catch (err) {
+    setStatus(err.message, "error");
+  }
 });
 
 submitBtn.addEventListener("click", handleSubmit);
 
 // Initialise form with stored URL
 apiUrlInput.value = getApiBaseUrl();
-setStatus("Siap menggunakan backend: " + apiUrlInput.value, "success");
+try {
+  setStatus("Siap menggunakan backend: " + validateApiUrl(apiUrlInput.value), "success");
+} catch (err) {
+  setStatus(err.message, "error");
+}

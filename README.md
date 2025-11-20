@@ -53,7 +53,12 @@ cd Deteksi_Hoaks
 
 ### 4) Menjalankan frontend
 1. Buka folder `frontend/` dengan Live Server (VS Code) atau host statik lain.
-2. Isi URL backend (mis. `http://localhost:8000`).
+2. Isi URL backend (mis. `http://localhost:8000`). Untuk frontend yang di-host HTTPS
+   (Vercel/Netlify) agar tidak terkena mixed content, bisa memilih salah satu:
+   - Pakai URL backend HTTPS (mis. hasil Cloudflare/Ngrok tunnel) langsung di form.
+   - Atau gunakan proxy bawaan `api/predict-hoax` pada deploy Vercel: set env
+     `BACKEND_BASE_URL=http://IP_OR_HOST:8000`, lalu isi form dengan
+     `/api/predict-hoax` supaya request tetap HTTPS dari browser.
 3. Tempel teks berita dan klik **Periksa sekarang** → hasil dan skor tampil di
    panel hasil.
 
