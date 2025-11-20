@@ -38,10 +38,26 @@ const renderResult = (item) => {
 
 const validateApiUrl = (rawUrl) => {
   try {
+
+    const pageIsHttps = window.location.protocol === "https:";
+
+    // Allow relative proxy paths (e.g., /api/predict-hoax) so Vercel Functions
+    // can forward to an HTTP backend without mixed-content issues.
+    if (rawUrl.startsWith("/")) {
+      return `${window.location.origin}${rawUrl.replace(/\/$/, "")}`;
+    }
+
+
     const url = new URL(rawUrl);
     if (!url.protocol.startsWith("http")) {
       throw new Error("Gunakan protokol http atau https.");
     }
+
+    const isLocalhost = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    if (pageIsHttps && url.protocol === "http:" && !isLocalhost) {
+      throw new Error(
+        "Frontend berjalan di https sehingga backend http diblokir (mixed content). Pakai URL https dari tunneling (mis. Cloudflare/Ngrok) atau panggil proxy /api/predict-hoax."
+
     const pageIsHttps = window.location.protocol === "https:";
     const isLocalhost = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
     if (pageIsHttps && url.protocol === "http:" && !isLocalhost) {
