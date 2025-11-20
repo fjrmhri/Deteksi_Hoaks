@@ -11,26 +11,27 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from .config import get_settings
 from .text_utils import normalise_text
 
-_LABEL_ID_TO_NAME: Dict[int, str] = {
-    0: "hoaks",
-    1: "bukan hoaks",
-}
-
 
 class HoaxDetector:
     """Wrapper around an IndoBERT sequence classification model."""
 
     def __init__(self, model_name_or_path: str, device: str = "auto", max_length: int = 256) -> None:
-        settings_device = device
+        target_device = device
         if device == "auto":
-            settings_device = "cuda" if torch.cuda.is_available() else "cpu"
+            target_device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        self.device = torch.device(settings_device)
+        self.device = torch.device(target_device)
         self.max_length = max_length
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path)
         self.model.to(self.device)
         self.model.eval()
+
+        # Prefer label mapping stored with the fine-tuned model
+        if self.model.config.id2label:
+            self.id2label: Dict[int, str] = {int(k): v for k, v in self.model.config.id2label.items()}
+        else:
+            self.id2label = {0: "not_hoax", 1: "hoax"}
 
     @torch.inference_mode()
     def predict(self, text: str) -> Tuple[str, float]:
@@ -48,7 +49,7 @@ class HoaxDetector:
         outputs = self.model(**encoded)
         probs = F.softmax(outputs.logits, dim=-1)[0]
         score, label_id = torch.max(probs, dim=-1)
-        label_name = _LABEL_ID_TO_NAME.get(label_id.item(), str(label_id.item()))
+        label_name = self.id2label.get(label_id.item(), str(label_id.item()))
         return label_name, float(score.item())
 
 
