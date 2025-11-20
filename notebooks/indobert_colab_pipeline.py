@@ -294,16 +294,38 @@ def predict_texts(texts: List[str], model_path: Path = cfg.save_dir) -> List[Dic
 Run after training/saving to quickly test inference without leaving the notebook.
 
 The server enables permissive CORS to allow requests from hosted frontends (e.g., Vercel).
+
+
+> ⚠️ Jika frontend kamu berjalan di `https://` (seperti Vercel), browser akan menolak
+> permintaan ke backend `http://` biasa (mixed content). Pastikan backend juga
+> tersedia lewat `https` (mis. reverse proxy/Cloudflare Tunnel) atau uji dari
+> halaman yang juga memakai `http://`.
+>
+> Langkah cepat untuk backend HTTPS:
+> 1. Jalankan server di port 8000 (lihat contoh di bawah).
+> 2. Buka tunnel HTTPS, misalnya:
+>    - `cloudflared tunnel --url http://localhost:8000`
+>    - atau `ngrok http 8000`
+> 3. Salin URL `https://...` dari tunnel, set ke `PUBLIC_HTTPS_BASE_URL`, lalu pakai di frontend.
+
 """
 
 # %%
 import socket
 from typing import Any
 
+
+
 import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+
+import requests
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 app = FastAPI(title="IndoBERT Hoax Detection")
 app.add_middleware(
@@ -319,7 +341,17 @@ label_map = {int(k): v for k, v in model_for_api.config.id2label.items()} if mod
 
 
 class PredictPayload(BaseModel):
-    text: str
+    """Accept both English (`text`) and Indonesian (`teks`) keys."""
+
+    text: str | None = Field(default=None, description="Teks berita untuk dianalisis")
+    teks: str | None = Field(default=None, description="Alias Bahasa Indonesia untuk 'text'")
+
+    def resolve_text(self) -> str:
+        if self.text:
+            return self.text
+        if self.teks:
+            return self.teks
+        raise HTTPException(status_code=422, detail="Field 'text' atau 'teks' wajib diisi.")
 
 
 class PredictResponse(BaseModel):
@@ -330,7 +362,7 @@ class PredictResponse(BaseModel):
 @app.post("/predict-hoax", response_model=PredictResponse)
 def predict_endpoint(payload: PredictPayload) -> Any:
     encoded = tokenizer_for_api(
-        payload.text,
+        payload.resolve_text(),
         return_tensors="pt",
         truncation=True,
         padding=True,
@@ -345,6 +377,20 @@ def predict_endpoint(payload: PredictPayload) -> Any:
         "score": round(score.item(), 4),
     }
 
+
+def resolve_public_base_url(port: int = 8000, https_env_var: str = "PUBLIC_HTTPS_BASE_URL") -> str:
+    """Return a base URL that can be used by an already-hosted website.
+
+    If an HTTPS tunnel URL is provided via environment variable (e.g. Ngrok/
+    Cloudflare Tunnel), prefer that so the frontend can avoid mixed-content
+    blocks. Otherwise fall back to `http://<external_ip>:<port>`.
+    """
+
+    https_override = os.getenv(https_env_var)
+    if https_override:
+        return https_override.rstrip("/")
+
+
 def resolve_public_base_url(port: int = 8000) -> str:
     """Return a base URL that can be used by an already-hosted website.
 
@@ -353,6 +399,7 @@ def resolve_public_base_url(port: int = 8000) -> str:
     the machine hostname. The result is meant to be plugged into the frontend as
     `http://<ip>:<port>`.
     """
+
 
     try:
         external_ip = requests.get("https://ifconfig.me", timeout=5).text.strip()
