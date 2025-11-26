@@ -30,7 +30,15 @@ const ENV_API_BASE_URL =
   "";
 
 // URL final yang dipakai semua request API
-const apiBaseUrl = ENV_API_BASE_URL ? ENV_API_BASE_URL.replace(/\/+$/, "") : "";
+const apiBaseUrl = 
+  (window.__ENV__ && window.__ENV__.API_BASE_URL) 
+  ? window.__ENV__.API_BASE_URL.replace(/\/+$/, "")
+  : "";
+
+if (!apiBaseUrl) {
+  showError("Konfigurasi API tidak ditemukan. Set NEXT_PUBLIC_API_BASE_URL di Vercel.");
+}
+;
 
 // =========================
 // Helper: Status UI
