@@ -13,7 +13,6 @@ const resultRiskExplanation = document.getElementById("resultRiskExplanation");
 
 const copyBtn = document.getElementById("copyBtn");
 const shareBtn = document.getElementById("shareBtn");
-const themeToggleBtn = document.getElementById("themeToggle");
 
 let lastResultShareText = "";
 
@@ -21,24 +20,18 @@ let lastResultShareText = "";
 // Konfigurasi API base URL
 // =========================
 
-// Di Next/Vercel, ini akan di-inject saat build
-const ENV_API_BASE_URL =
-  (typeof process !== "undefined" &&
-    process.env &&
-    process.env.NEXT_PUBLIC_API_BASE_URL) ||
-  (typeof window !== "undefined" && window.NEXT_PUBLIC_API_BASE_URL) ||
-  "";
+// API base URL di-inject dari Vercel via window.__ENV__
+// Jika placeholder belum diganti (masih "%NEXT_PUBLIC_API_BASE_URL%"),
+// kita anggap belum terkonfigurasi.
+const rawEnv =
+  window.__ENV && typeof window.__ENV.API_BASE_URL === "string"
+    ? window.__ENV.API_BASE_URL.trim()
+    : "";
 
-// URL final yang dipakai semua request API
-const apiBaseUrl = 
-  (window.__ENV__ && window.__ENV__.API_BASE_URL) 
-  ? window.__ENV__.API_BASE_URL.replace(/\/+$/, "")
-  : "";
-
-if (!apiBaseUrl) {
-  showError("Konfigurasi API tidak ditemukan. Set NEXT_PUBLIC_API_BASE_URL di Vercel.");
-}
-;
+const apiBaseUrl =
+  rawEnv && rawEnv !== "%NEXT_PUBLIC_API_BASE_URL%"
+    ? rawEnv.replace(/\/+$/, "")
+    : "";
 
 // =========================
 // Helper: Status UI
@@ -76,51 +69,6 @@ const setLoading = (isLoading) => {
 };
 
 // =========================
-// Dark mode toggle
-// =========================
-
-const THEME_KEY = "hoaxTheme";
-
-const applyTheme = (mode) => {
-  if (mode === "dark") {
-    document.body.classList.add("dark");
-    if (themeToggleBtn) themeToggleBtn.textContent = "☀️";
-  } else {
-    document.body.classList.remove("dark");
-    if (themeToggleBtn) themeToggleBtn.textContent = "🌙";
-  }
-};
-
-const loadTheme = () => {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === "dark" || saved === "light") {
-      applyTheme(saved);
-      return;
-    }
-  } catch (_) {
-    // ignore
-  }
-  // default: light
-  applyTheme("light");
-};
-
-const toggleTheme = () => {
-  const isDark = document.body.classList.contains("dark");
-  const next = isDark ? "light" : "dark";
-  applyTheme(next);
-  try {
-    localStorage.setItem(THEME_KEY, next);
-  } catch (_) {
-    // ignore
-  }
-};
-
-if (themeToggleBtn) {
-  themeToggleBtn.addEventListener("click", toggleTheme);
-}
-
-// =========================
 // Cek /health backend
 // =========================
 
@@ -136,6 +84,12 @@ async function verifyBackend(url) {
     return true;
   } catch (err) {
     console.error("Gagal memverifikasi backend:", err);
+    // Jangan tampilkan "Failed to fetch" mentah-mentah ke user
+    if (err instanceof TypeError) {
+      throw new Error(
+        "Gagal menghubungi backend. Pastikan URL NEXT_PUBLIC_API_BASE_URL sudah benar (https) dan Space aktif."
+      );
+    }
     const message =
       err instanceof Error ? err.message : "Tidak dapat terhubung ke backend.";
     throw new Error(message);
@@ -286,7 +240,7 @@ const renderResult = (prediction, originalText) => {
 async function callApi(text) {
   if (!apiBaseUrl) {
     throw new Error(
-      "NEXT_PUBLIC_API_BASE_URL tidak terkonfigurasi. Set env di Vercel terlebih dahulu."
+      "NEXT_PUBLIC_API_BASE_URL belum terkonfigurasi. Set env di Vercel terlebih dahulu."
     );
   }
 
@@ -313,8 +267,9 @@ async function callApi(text) {
   } catch (err) {
     console.error("Gagal memanggil API hoaks:", err);
     if (err instanceof TypeError) {
+      // Di sinilah "Failed to fetch" biasanya muncul → kita ganti dengan pesan ramah
       throw new Error(
-        "Gagal terhubung ke backend. Pastikan API Hugging Face dapat diakses dan tidak diblokir jaringan."
+        "Gagal terhubung ke backend. Pastikan URL API (HTTPS) benar dan Space Hugging Face sedang aktif."
       );
     }
     const message =
@@ -447,11 +402,9 @@ if (shareBtn) shareBtn.addEventListener("click", handleShare);
 // Inisialisasi awal
 // =========================
 
-loadTheme();
-
 if (!apiBaseUrl) {
   setStatus(
-    "Konfigurasi API tidak ditemukan. Set NEXT_PUBLIC_API_BASE_URL di Vercel.",
+    "Konfigurasi API tidak ditemukan. Set NEXT_PUBLIC_API_BASE_URL di Vercel (gunakan URL HTTPS Space Hugging Face).",
     "error"
   );
   if (submitBtn) submitBtn.disabled = true;

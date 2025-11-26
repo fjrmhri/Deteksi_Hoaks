@@ -2,9 +2,10 @@
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
+    <!-- Env injection dari Vercel -->
     <script>
       window.__ENV__ = {
-        API_BASE_URL: "%NEXT_PUBLIC_API_BASE_URL%"
+        API_BASE_URL: "%NEXT_PUBLIC_API_BASE_URL%",
       };
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -22,7 +23,7 @@
         </p>
       </div>
       <div class="hero__right">
-        <div class="hero__pill">Kelompok ?</div>
+        <div class="hero__pill">Deteksi Hoaks IndoBERT</div>
       </div>
     </header>
 
