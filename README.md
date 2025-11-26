@@ -267,15 +267,8 @@ Dark mode toggle
 
 Error handling ramah pengguna
 
-10.2 Environment Variable
-
-Di Vercel tambahkan:
-
-NEXT_PUBLIC_API_BASE_URL=https://your-space.hf.space
 
 
-Frontend otomatis menggunakan nilai ini.
-Tidak ada konfigurasi API di UI.
 
 11. Struktur Folder Frontend
 Deteksi_Hoaks/
