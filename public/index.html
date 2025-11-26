@@ -10,111 +10,114 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="hero">
-      <div class="hero__text">
-        <h1>Deteksi Hoaks Berita</h1>
+    <div class="page page--scaled">
+      <header class="hero">
+        <div class="hero__text">
+          <h1>Deteksi Hoaks Berita</h1>
+          <p>
+            Masukkan teks berita dan dapatkan prediksi risiko hoaks:
+            <strong>hoaks tinggi</strong>, <strong>perlu dicek</strong>, atau
+            <strong>bukan hoaks</strong>.
+          </p>
+        </div>
+        <div class="hero__right">
+          <div class="hero__pill">github/fjrmhri</div>
+        </div>
+      </header>
+
+      <main class="container">
+        <!-- Form utama -->
+        <section class="card">
+          <h2>Periksa Berita</h2>
+          <textarea
+            id="newsText"
+            rows="8"
+            placeholder="Tempel berita yang ingin diperiksa..."
+          ></textarea>
+          <p class="hint">
+            Tips: Untuk hasil yang lebih stabil, gunakan teks yang cukup lengkap
+            (misalnya 2–3 paragraf), bukan hanya satu kalimat sangat pendek.
+          </p>
+          <button id="submitBtn">
+            <span id="submitLabel">Periksa sekarang</span>
+            <span id="submitSpinner" class="spinner hidden"></span>
+          </button>
+        </section>
+
+        <!-- Status -->
+        <section id="statusPanel" class="status card hidden"></section>
+
+        <!-- Hasil -->
+        <section id="resultPanel" class="card hidden">
+          <div class="card__header">
+            <h2>Hasil Prediksi</h2>
+            <span id="resultBadge" class="badge">Menunggu...</span>
+          </div>
+
+          <p id="resultDecision" class="result__decision"></p>
+          <p id="resultRiskExplanation" class="result__risk"></p>
+
+          <p id="resultScore" class="result__score"></p>
+
+          <div class="actions-row">
+            <button id="copyBtn" class="secondary small" type="button">
+              Copy hasil
+            </button>
+            <button id="shareBtn" class="secondary small" type="button">
+              Share
+            </button>
+          </div>
+
+          <hr class="divider" />
+
+          <p class="hint label-berita">Teks berita yang Anda periksa:</p>
+          <p id="resultText" class="result__text"></p>
+        </section>
+
+        <!-- Info model (statis) -->
+        <section class="card">
+          <h2>Tentang Model</h2>
+          <p class="hint">
+            Model ini adalah <strong>IndoBERT-base</strong> yang di-fine-tune
+            untuk deteksi hoaks pada berita Indonesia (2020–2025).
+          </p>
+          <ul>
+            <li>Akurasi test internal: <strong>99.83%</strong></li>
+            <li>
+              F1-score kelas <code>hoax</code> (test): <strong>0.9874</strong>
+            </li>
+            <li>
+              Dirancang sebagai <strong>detektor risiko</strong>: cenderung
+              lebih sensitif terhadap hoaks agar konten berisiko bisa langsung
+              ditandai.
+            </li>
+          </ul>
+          <p class="hint">
+            Model dilatih dengan kombinasi berita dari CNN, Detik, Kompas,
+            TurnBackHoax, dan kumpulan berita non-hoaks tambahan yang sudah
+            dibersihkan. Output model dipetakan ke tiga level:
+          </p>
+          <ul>
+            <li><strong>Hoaks – risiko tinggi</strong>: P(hoaks) &gt; 98%</li>
+            <li>
+              <strong>Perlu dicek (curiga)</strong>: P(hoaks) antara 60–98%,
+              perlu verifikasi ke sumber resmi
+            </li>
+            <li>
+              <strong>Bukan hoaks (cenderung valid)</strong>: P(hoaks) ≤ 60%,
+              namun tetap gunakan literasi digital
+            </li>
+          </ul>
+        </section>
+      </main>
+
+      <footer>
         <p>
-          Masukkan teks berita dan dapatkan prediksi risiko hoaks:
-          <strong>hoaks tinggi</strong>, <strong>perlu dicek</strong>, atau
-          <strong>bukan hoaks</strong>.
+          Model dilatih di <strong>Google Colab</strong> dan disajikan via
+          <strong>FastAPI</strong> di <strong>Hugging Face Spaces</strong>.
         </p>
-      </div>
-      <div class="hero__right">
-        <div class="hero__pill">github/fjrmhri</div>
-      </div>
-    </header>
-
-    <main class="container">
-      <!-- Form utama -->
-      <section class="card">
-        <h2>Periksa Berita</h2>
-        <textarea
-          id="newsText"
-          rows="8"
-          placeholder="Tempel berita yang ingin diperiksa..."
-        ></textarea>
-        <p class="hint">
-          Tips: Untuk hasil yang lebih stabil, gunakan teks yang cukup lengkap
-          (misalnya 2–3 paragraf), bukan hanya satu kalimat sangat pendek.
-        </p>
-        <button id="submitBtn">
-          <span id="submitLabel">Periksa sekarang</span>
-          <span id="submitSpinner" class="spinner hidden"></span>
-        </button>
-      </section>
-
-      <!-- Status -->
-      <section id="statusPanel" class="status card hidden"></section>
-
-      <!-- Hasil -->
-      <section id="resultPanel" class="card hidden">
-        <div class="card__header">
-          <h2>Hasil Prediksi</h2>
-          <span id="resultBadge" class="badge">Menunggu...</span>
-        </div>
-
-        <p id="resultDecision" class="result__decision"></p>
-        <p id="resultRiskExplanation" class="result__risk"></p>
-
-        <p id="resultScore" class="result__score"></p>
-
-        <div class="actions-row">
-          <button id="copyBtn" class="secondary small" type="button">
-            Copy hasil
-          </button>
-          <button id="shareBtn" class="secondary small" type="button">
-            Share
-          </button>
-        </div>
-
-        <hr class="divider" />
-
-        <p class="hint label-berita">Teks berita yang Anda periksa:</p>
-        <p id="resultText" class="result__text"></p>
-      </section>
-
-      <!-- Info model (statis) -->
-      <section class="card">
-        <h2>Tentang Model</h2>
-        <p class="hint">
-          Model ini adalah <strong>IndoBERT-base</strong> yang di-fine-tune
-          untuk deteksi hoaks pada berita Indonesia (2020–2025).
-        </p>
-        <ul>
-          <li>Akurasi test internal: <strong>99.83%</strong></li>
-          <li>
-            F1-score kelas <code>hoax</code> (test): <strong>0.9874</strong>
-          </li>
-          <li>
-            Dirancang sebagai <strong>detektor risiko</strong>: cenderung lebih
-            sensitif terhadap hoaks agar konten berisiko bisa langsung ditandai.
-          </li>
-        </ul>
-        <p class="hint">
-          Model dilatih dengan kombinasi berita dari CNN, Detik, Kompas,
-          TurnBackHoax, dan kumpulan berita non-hoaks tambahan yang sudah
-          dibersihkan. Output model dipetakan ke tiga level:
-        </p>
-        <ul>
-          <li><strong>Hoaks – risiko tinggi</strong>: P(hoaks) &gt; 98%</li>
-          <li>
-            <strong>Perlu dicek (curiga)</strong>: P(hoaks) antara 60–98%, perlu
-            verifikasi ke sumber resmi
-          </li>
-          <li>
-            <strong>Bukan hoaks (cenderung valid)</strong>: P(hoaks) ≤ 60%,
-            namun tetap gunakan literasi digital
-          </li>
-        </ul>
-      </section>
-    </main>
-
-    <footer>
-      <p>
-        Model dilatih di <strong>Google Colab</strong> dan disajikan via
-        <strong>FastAPI</strong> di <strong>Hugging Face Spaces</strong>.
-      </p>
-    </footer>
+      </footer>
+    </div>
 
     <script src="app.js" type="module"></script>
   </body>
