@@ -17,30 +17,6 @@ body {
   flex-direction: column;
 }
 
-.page {
-  width: 100%;
-}
-
-.page--scaled {
-  max-width: 1200px;
-  margin: 0 auto;
-  transform: scale(0.82);
-  transform-origin: top center;
-}
-
-@media (max-width: 1100px) {
-  .page--scaled {
-    transform: scale(0.9);
-  }
-}
-
-@media (max-width: 768px) {
-  .page--scaled {
-    transform: none;
-    padding: 0 0.75rem;
-  }
-}
-
 /* ======================
    HERO
 ====================== */
