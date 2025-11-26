@@ -1,3 +1,12 @@
+// =========================
+// Konfigurasi API base URL (hardcode)
+// =========================
+
+const apiBaseUrl = "https://fjrmhri-indobert-hoax-api.hf.space".replace(
+  /\/+$/,
+  ""
+);
+
 // Ambil elemen DOM utama
 const submitBtn = document.getElementById("submitBtn");
 const submitLabel = document.getElementById("submitLabel");
@@ -9,29 +18,14 @@ const resultBadge = document.getElementById("resultBadge");
 const resultText = document.getElementById("resultText");
 const resultScore = document.getElementById("resultScore");
 const resultDecision = document.getElementById("resultDecision");
-const resultRiskExplanation = document.getElementById("resultRiskExplanation");
+const resultRiskExplanation = document.getElementById(
+  "resultRiskExplanation"
+);
 
 const copyBtn = document.getElementById("copyBtn");
 const shareBtn = document.getElementById("shareBtn");
 
 let lastResultShareText = "";
-
-// =========================
-// Konfigurasi API base URL
-// =========================
-
-// API base URL di-inject dari Vercel via window.__ENV__
-// Jika placeholder belum diganti (masih "%NEXT_PUBLIC_API_BASE_URL%"),
-// kita anggap belum terkonfigurasi.
-const rawEnv =
-  window.__ENV && typeof window.__ENV.API_BASE_URL === "string"
-    ? window.__ENV.API_BASE_URL.trim()
-    : "";
-
-const apiBaseUrl =
-  rawEnv && rawEnv !== "%NEXT_PUBLIC_API_BASE_URL%"
-    ? rawEnv.replace(/\/+$/, "")
-    : "";
 
 // =========================
 // Helper: Status UI
@@ -84,10 +78,9 @@ async function verifyBackend(url) {
     return true;
   } catch (err) {
     console.error("Gagal memverifikasi backend:", err);
-    // Jangan tampilkan "Failed to fetch" mentah-mentah ke user
     if (err instanceof TypeError) {
       throw new Error(
-        "Gagal menghubungi backend. Pastikan URL NEXT_PUBLIC_API_BASE_URL sudah benar (https) dan Space aktif."
+        "Gagal menghubungi backend. Pastikan URL API sudah benar (HTTPS) dan Space aktif."
       );
     }
     const message =
@@ -97,13 +90,11 @@ async function verifyBackend(url) {
 }
 
 // =========================
-// Map risk level → badge
+/* Map risk level → badge */
 // =========================
 
 const mapRiskToBadge = (riskLevel) => {
-  const level = String(riskLevel || "")
-    .toLowerCase()
-    .trim();
+  const level = String(riskLevel || "").toLowerCase().trim();
   if (level === "high") {
     return {
       text: "Hoaks – risiko tinggi",
@@ -152,20 +143,16 @@ const renderResult = (prediction, originalText) => {
     riskExplanation,
   } = prediction;
 
-  const normalizedLabel = String(label || "")
-    .toLowerCase()
-    .trim();
+  const normalizedLabel = String(label || "").toLowerCase().trim();
   const isHoax =
     normalizedLabel === "hoax" ||
     normalizedLabel === "1" ||
     normalizedLabel.includes("hoax");
 
-  // Badge berdasarkan risk level
   const badgeInfo = mapRiskToBadge(riskLevel);
   resultBadge.textContent = badgeInfo.text;
   resultBadge.className = badgeInfo.className;
 
-  // Prediksi model (label argmax)
   if (isHoax) {
     resultDecision.textContent = "Prediksi model: Hoaks";
   } else if (
@@ -180,10 +167,8 @@ const renderResult = (prediction, originalText) => {
     }`;
   }
 
-  // Penjelasan risiko dari backend
   resultRiskExplanation.textContent = riskExplanation || "";
 
-  // Skor & probabilitas
   let pHoax = null;
   let pNotHoax = null;
 
@@ -206,7 +191,6 @@ const renderResult = (prediction, originalText) => {
   }
 
   let scoreText = `Confidence: ${(score * 100).toFixed(2)}%`;
-
   const parts = [];
   if (typeof pHoax === "number") {
     parts.push(`P(hoaks): ${(pHoax * 100).toFixed(2)}%`);
@@ -221,7 +205,6 @@ const renderResult = (prediction, originalText) => {
   resultScore.textContent = scoreText;
   resultText.textContent = originalText;
 
-  // Siapkan teks untuk Copy / Share
   lastResultShareText =
     `Hasil Deteksi Hoaks\n\n` +
     `${resultDecision.textContent}\n` +
@@ -239,9 +222,7 @@ const renderResult = (prediction, originalText) => {
 
 async function callApi(text) {
   if (!apiBaseUrl) {
-    throw new Error(
-      "NEXT_PUBLIC_API_BASE_URL belum terkonfigurasi. Set env di Vercel terlebih dahulu."
-    );
+    throw new Error("API base URL kosong.");
   }
 
   const base = apiBaseUrl.replace(/\/+$/, "");
@@ -267,9 +248,8 @@ async function callApi(text) {
   } catch (err) {
     console.error("Gagal memanggil API hoaks:", err);
     if (err instanceof TypeError) {
-      // Di sinilah "Failed to fetch" biasanya muncul → kita ganti dengan pesan ramah
       throw new Error(
-        "Gagal terhubung ke backend. Pastikan URL API (HTTPS) benar dan Space Hugging Face sedang aktif."
+        "Gagal terhubung ke backend. Pastikan API Hugging Face Space aktif dan mengizinkan CORS."
       );
     }
     const message =
@@ -279,15 +259,6 @@ async function callApi(text) {
 }
 
 const extractPrediction = (payload) => {
-  // Ekspektasi respons FastAPI:
-  // {
-  //   "label": "hoax" | "not_hoax",
-  //   "score": 0.xx,
-  //   "probabilities": {...},
-  //   "hoax_probability": 0.xx,
-  //   "risk_level": "high" | "medium" | "low",
-  //   "risk_explanation": "..."
-  // }
   if (
     !payload ||
     typeof payload.label !== "string" ||
@@ -343,7 +314,6 @@ async function handleShare() {
       console.error("Share dibatalkan / gagal:", err);
     }
   } else {
-    // Fallback: copy saja
     await handleCopy();
   }
 }
@@ -384,7 +354,7 @@ if (submitBtn) {
   submitBtn.addEventListener("click", handleSubmit);
 }
 
-// Event Ctrl+Enter di textarea untuk submit cepat
+// Ctrl+Enter untuk submit
 if (newsText) {
   newsText.addEventListener("keydown", (e) => {
     if (e.ctrlKey && (e.key === "Enter" || e.key === "NumpadEnter")) {
@@ -403,14 +373,13 @@ if (shareBtn) shareBtn.addEventListener("click", handleShare);
 // =========================
 
 if (!apiBaseUrl) {
-  setStatus(
-    "Konfigurasi API tidak ditemukan. Set NEXT_PUBLIC_API_BASE_URL di Vercel (gunakan URL HTTPS Space Hugging Face).",
-    "error"
-  );
+  setStatus("API base URL kosong di app.js.", "error");
   if (submitBtn) submitBtn.disabled = true;
 } else {
   setStatus(`Menggunakan backend: ${apiBaseUrl}`, "info");
   verifyBackend(apiBaseUrl)
-    .then(() => setStatus(`Tersambung ke backend: ${apiBaseUrl}`, "success"))
+    .then(() =>
+      setStatus(`Tersambung ke backend: ${apiBaseUrl}`, "success")
+    )
     .catch((err) => setStatus(err.message, "error"));
 }
