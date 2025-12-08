@@ -30,7 +30,7 @@ User → Frontend (Vercel) → FastAPI (HuggingFace Spaces) → IndoBERT Model �
 - Summarized_CNN.csv
 - Summarized_Detik.csv
 - Summarized_Kompas.csv
-- merged_clean_filtered_2020plus_halfNaT.csv (hasil merging + cleaning besar, filtering tanggal ≥ 2020, dan sebagian NaT dibuang)
+- Summarized_2020+
 
 **Hoaks:**
 - Summarized_TurnBackHoax.csv (berisi narasi hoaks & debunk)
