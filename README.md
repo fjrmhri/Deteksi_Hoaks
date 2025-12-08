@@ -124,6 +124,7 @@ Training berjalan ±2 jam di GPU T4.
 - Recall hoax: 0.9833
 - F1 hoax: 0.9877
 - Confusion Matrix – Validation: `preview/confusion-matrix-validation.png`
+<img src="preview/confusion-matrix-validation.png"
 
 ### Test Set
 - Accuracy: 0.9983
