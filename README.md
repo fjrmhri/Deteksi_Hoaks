@@ -123,7 +123,7 @@ Training berjalan ±2 jam di GPU T4.
 - Precision hoax: 0.9921
 - Recall hoax: 0.9833
 - F1 hoax: 0.9877
-- Confusion Matrix – Validation: `preview/confusion-matrix-validation.png`
+- Confusion Matrix – Validation:
 <img src="preview/confusion-matrix-validation.png">
 
 ### Test Set
@@ -131,7 +131,8 @@ Training berjalan ±2 jam di GPU T4.
 - Precision hoax: 0.9938
 - Recall hoax: 0.9810
 - F1 hoax: 0.9874
-- Confusion Matrix – Test: `preview/confusion-matrix-test.png`
+- Confusion Matrix – Test:
+<img src="preview/confusion-matrix-test.png">
 
 ## Dokumentasi
 Untuk dokumentasi lengkap dan panduan pengembangan, silakan lihat **[DOCUMENTATION.md](DOCUMENTATION.md)**.
