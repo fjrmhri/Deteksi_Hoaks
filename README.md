@@ -132,5 +132,8 @@ Training berjalan ±2 jam di GPU T4.
 - F1 hoax: 0.9874
 - Confusion Matrix – Test: `preview/confusion-matrix-test.png`
 
+## Dokumenatsi
+Untuk dokumentasi lengkap dan panduan pengembangan, silakan lihat **[DOCUMENTATION.md](DOCUMENTATION.md)**.
+
 ## Aset
 Semua gambar dan ilustrasi berada di folder `preview/` sesuai permintaan proyek.
