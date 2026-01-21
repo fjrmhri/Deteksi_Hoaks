@@ -8,13 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# Konfigurasi dan load model
+# =========================
+# Konfigurasi & Load Model
+# =========================
 
 MODEL_ID = os.getenv("MODEL_ID", "fjrmhri/hoaks-detection")
 SUBFOLDER = os.getenv("MODEL_SUBFOLDER", "models/indobert_hoax") or None
 MAX_LENGTH = int(os.getenv("MAX_LENGTH", "256"))
 
-# Threshold risiko
+# Threshold risiko (bisa diubah lewat env)
 THRESH_HIGH = float(os.getenv("HOAX_THRESH_HIGH", "0.98"))
 THRESH_MED = float(os.getenv("HOAX_THRESH_MED", "0.60"))
 
@@ -45,7 +47,10 @@ if getattr(model.config, "id2label", None):
 else:
     ID2LABEL = {0: "not_hoax", 1: "hoax"}
 
+
+# =========================
 # FastAPI setup
+# =========================
 
 app = FastAPI(
     title="Indo Hoax Detector API",
@@ -55,14 +60,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  # bisa dibatasi ke domain Vercel jika perlu
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# =========================
 # Schemas
+# =========================
 
 class PredictRequest(BaseModel):
     text: str
@@ -85,7 +92,9 @@ class BatchPredictResponse(BaseModel):
     results: List[PredictResponse]
 
 
+# =========================
 # Util inferensi
+# =========================
 
 def _prepare_texts(texts: List[str]) -> List[str]:
     processed = []
@@ -132,13 +141,16 @@ def _predict_proba(texts: List[str]) -> List[Dict[str, float]]:
 
 
 def _extract_hoax_probability(prob_dict: Dict[str, float]) -> float:
+    # kasus ideal: label "hoax"
     if "hoax" in prob_dict:
         return float(prob_dict["hoax"])
 
+    # fallback: key yang mengandung "hoax"
     for k, v in prob_dict.items():
         if "hoax" in k.lower():
             return float(v)
 
+    # fallback: kalau cuma 2 label dan ada "not_hoax"
     if len(prob_dict) == 2 and "not_hoax" in prob_dict:
         for k, v in prob_dict.items():
             if k != "not_hoax":
@@ -158,6 +170,7 @@ def analyze_risk(prob_dict: Dict[str, float], original_text: Optional[str] = Non
     """
     p_hoax = _extract_hoax_probability(prob_dict)
 
+    # default berdasarkan probabilitas
     if p_hoax > THRESH_HIGH:
         level = "high"
         explanation = (
@@ -177,9 +190,11 @@ def analyze_risk(prob_dict: Dict[str, float], original_text: Optional[str] = Non
             "Meski demikian, tetap gunakan literasi dan bandingkan dengan sumber lain."
         )
 
+    # Perlakuan khusus teks sangat pendek
     if original_text is not None:
         word_count = len(str(original_text).strip().split())
         if word_count < 5:
+            # Jangan pernah beri 'low' untuk teks terlalu pendek
             if level == "low":
                 level = "medium"
             explanation += (
@@ -195,9 +210,13 @@ def _maybe_log(sample_info: Dict):
         return
     if random.random() > LOG_SAMPLE_RATE:
         return
+    # Logging simpel ke stdout
     print("[HOAX_LOG]", sample_info)
 
+
+# =========================
 # Routes
+# =========================
 
 @app.get("/")
 def read_root():
